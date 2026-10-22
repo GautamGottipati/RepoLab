@@ -13,9 +13,19 @@ import { useState } from "react";
 
 import { Empty } from "./ui";
 import { count } from "@/lib/format";
-import type { Claim, ClaimKind, EvidenceBundle, UnsupportedClaim } from "@/lib/types";
+import type { AnswerClaimKind, ClaimKind, EvidenceBundle } from "@/lib/types";
 
-const KIND_STYLE: Record<ClaimKind, { border: string; label: string; tone: string }> = {
+/** An experiment's claims are measured; an answer's rest on repository files. */
+type AnyClaimKind = ClaimKind | AnswerClaimKind;
+
+type AnyClaim = { kind: AnyClaimKind; statement: string; support: string };
+
+const KIND_STYLE: Record<AnyClaimKind, { border: string; label: string; tone: string }> = {
+  repository: {
+    border: "border-l-4 border-l-violet-500",
+    label: "repository",
+    tone: "text-violet-700 dark:text-violet-300",
+  },
   measured: {
     border: "border-l-4 border-l-emerald-500",
     label: "measured",
@@ -33,14 +43,15 @@ const KIND_STYLE: Record<ClaimKind, { border: string; label: string; tone: strin
   },
 };
 
-const KIND_HINT: Record<ClaimKind, string> = {
+const KIND_HINT: Record<AnyClaimKind, string> = {
+  repository: "Shown by a file in this repository, at the investigated commit.",
   measured: "A number this experiment produced, traced to a metric.",
   documented: "Stated by official, version-matched documentation.",
   inferred: "A conclusion drawn from the above. Not itself evidence.",
 };
 
-export function ClaimList({ claims }: { claims: Claim[] }) {
-  const kinds: ClaimKind[] = ["measured", "documented", "inferred"];
+export function ClaimList({ claims }: { claims: AnyClaim[] }) {
+  const kinds: AnyClaimKind[] = ["measured", "repository", "documented", "inferred"];
 
   return (
     <div className="flex flex-col gap-5" data-testid="claims">
@@ -96,7 +107,11 @@ export function ClaimList({ claims }: { claims: Claim[] }) {
  * Shown prominently. A claim the evidence did not support is the single most
  * important thing on the screen.
  */
-export function UnsupportedClaims({ claims }: { claims: UnsupportedClaim[] }) {
+export function UnsupportedClaims({
+  claims,
+}: {
+  claims: { statement: string; kind: AnyClaimKind; problem: string }[];
+}) {
   if (claims.length === 0) return null;
 
   return (
@@ -122,8 +137,14 @@ export function UnsupportedClaims({ claims }: { claims: UnsupportedClaim[] }) {
 
 type Tab = "measurements" | "code" | "logs" | "docs";
 
-export function EvidencePanel({ evidence }: { evidence: EvidenceBundle }) {
-  const [tab, setTab] = useState<Tab>("measurements");
+export function EvidencePanel({
+  evidence,
+  initialTab = "measurements",
+}: {
+  evidence: EvidenceBundle;
+  initialTab?: Tab;
+}) {
+  const [tab, setTab] = useState<Tab>(initialTab);
 
   const tabs: { key: Tab; label: string; badge: number }[] = [
     { key: "measurements", label: "Measurements", badge: evidence.measurements.length },

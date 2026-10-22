@@ -43,8 +43,17 @@ class IllegalTransitionError(RuntimeError):
         super().__init__(f"cannot move an experiment from {current.value} to {target.value}")
 
 
-class Experiment(BaseModel):
-    """One question, investigated by measurement."""
+class ExperimentLifecycle(BaseModel):
+    """The state machine every kind of experiment shares.
+
+    A Spark sweep and a CQL comparison measure different things, but they pass
+    the same gate: ``approve`` and ``reject`` are the only ways out of
+    ``AWAITING_APPROVAL``, and :attr:`may_execute` is what an executor consults.
+    Keeping one implementation is what keeps there being exactly one gate.
+
+    Subclasses carry a ``plan`` with a ``summary()``; the lifecycle only needs to
+    know whether there is one.
+    """
 
     id: str = Field(default_factory=lambda: str(uuid.uuid4()))
     job_id: str | None = None
@@ -56,18 +65,8 @@ class Experiment(BaseModel):
 
     status: ExperimentStatus = ExperimentStatus.PROPOSED
 
-    proposal: ProposedPlan | None = None
-    """What the model suggested, kept so the audit trail shows what was asked for."""
-
-    plan: ExperimentPlan | None = None
     rejection: PlanRejected | None = None
     """Why validation refused the proposal, when it did."""
-
-    runs: list[VariantRun] = Field(default_factory=list)
-    statistics: ExperimentStatistics | None = None
-    evidence: EvidenceBundle | None = None
-    explanation: VerifiedExplanation | None = None
-    reproducibility: ReproducibilityRecord | None = None
 
     error: str | None = None
     explanation_error: str | None = None
@@ -85,16 +84,14 @@ class Experiment(BaseModel):
     started_at: datetime | None = None
     finished_at: datetime | None = None
 
+    def _has_plan(self) -> bool:
+        return getattr(self, "plan", None) is not None
+
     @computed_field
     @property
     def may_execute(self) -> bool:
         """Whether variants may run. The single source of truth for the gate."""
-        return self.status.may_execute and self.plan is not None
-
-    @computed_field
-    @property
-    def run_count(self) -> int:
-        return len(self.runs)
+        return self.status.may_execute and self._has_plan()
 
     @property
     def duration_seconds(self) -> float | None:
@@ -110,7 +107,7 @@ class Experiment(BaseModel):
         Raises:
             IllegalTransitionError: there is no validated plan to approve.
         """
-        if self.plan is None:
+        if not self._has_plan():
             raise IllegalTransitionError(self.status, ExperimentStatus.AWAITING_APPROVAL)
         self.status = ExperimentStatus.AWAITING_APPROVAL
 
@@ -167,6 +164,26 @@ class Experiment(BaseModel):
         self.status = ExperimentStatus.FAILED
         self.error = str(rejection)
         self.finished_at = _now()
+
+
+class Experiment(ExperimentLifecycle):
+    """One question, investigated by measurement of a Spark job."""
+
+    proposal: ProposedPlan | None = None
+    """What the model suggested, kept so the audit trail shows what was asked for."""
+
+    plan: ExperimentPlan | None = None
+
+    runs: list[VariantRun] = Field(default_factory=list)
+    statistics: ExperimentStatistics | None = None
+    evidence: EvidenceBundle | None = None
+    explanation: VerifiedExplanation | None = None
+    reproducibility: ReproducibilityRecord | None = None
+
+    @computed_field
+    @property
+    def run_count(self) -> int:
+        return len(self.runs)
 
     # -- views ------------------------------------------------------------
 

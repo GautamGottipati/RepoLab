@@ -20,6 +20,7 @@ learner can check the claim rather than take it.
 
 from __future__ import annotations
 
+import re
 import uuid
 from datetime import UTC, datetime
 from enum import StrEnum
@@ -82,6 +83,34 @@ class StepCheck(BaseModel):
         return bool(self.expected.strip())
 
 
+#: Statements cqlsh runs in silence when they succeed. Verified against the real
+#: shell: a successful ``CREATE KEYSPACE`` prints nothing at all.
+SILENT_VERBS: frozenset[str] = frozenset(
+    {"create", "alter", "drop", "truncate", "insert", "update", "delete", "use", "begin", "apply"}
+)
+
+#: What a silent success looks like, said plainly.
+SILENT_OBSERVATION = (
+    "No output. cqlsh prints nothing when this statement succeeds; the absence of "
+    "an error is the result."
+)
+
+#: Wording that says the step prints nothing. "No error" alone is not enough: a
+#: generated step paired it with "the prompt changes", which RepoLab's terminal,
+#: whose prompt is fixed, does not do.
+_ACKNOWLEDGES_SILENCE = re.compile(r"no output|prints nothing|nothing is printed|silen", re.I)
+
+
+def runs_silently(action: str) -> bool:
+    """Whether cqlsh prints nothing for *action* when every statement in it succeeds."""
+    from repolab.experiences.cli.safety import split_statements
+
+    statements = split_statements(action)
+    return bool(statements) and all(
+        statement.split(maxsplit=1)[0].lower() in SILENT_VERBS for statement in statements
+    )
+
+
 class LessonStep(BaseModel):
     """One thing a learner does."""
 
@@ -105,6 +134,18 @@ class LessonStep(BaseModel):
             value = getattr(self, field)
             if isinstance(value, str) and len(value) > MAX_TEXT:
                 object.__setattr__(self, field, value[:MAX_TEXT])
+
+        # A generated lesson once told learners to expect "Keyspace created
+        # successfully." -- output cqlsh never prints. An expectation that
+        # contradicts the real shell is model-invented output, so it is replaced
+        # rather than shown. Applied on load as well, which corrects lessons
+        # already stored.
+        if (
+            self.validation.kind is CheckKind.SUCCEEDS
+            and runs_silently(self.action)
+            and not _ACKNOWLEDGES_SILENCE.search(self.expected_observation)
+        ):
+            object.__setattr__(self, "expected_observation", SILENT_OBSERVATION)
 
     @computed_field
     @property

@@ -155,11 +155,20 @@ class SuperPlanner:
             # pass an invalid request down the chain.
             return await self._fallback.next_request(run, context)
 
-        return ToolRequest(
+        request = ToolRequest(
             tool=action.action,
             arguments=action.arguments,
             reason=action.reason[:MAX_REASON_LENGTH],
         )
+
+        # Asking again for something that already succeeded learns nothing new.
+        # Observed: Super re-ran list_files() until the runtime's stall guard
+        # failed the whole investigation, which had all the evidence it needed.
+        # The deterministic planner moves on instead -- it only proposes tools not
+        # yet run, and says "done" when there are none.
+        if request.signature in _succeeded(run):
+            return await self._fallback.next_request(run, context)
+        return request
 
     def _build_prompt(self, run: AgentRun, context: dict[str, Any]) -> str:
         tool_lines = "\n".join(
@@ -167,8 +176,8 @@ class SuperPlanner:
             for tool in self._tools
         )
         history = "\n".join(
-            f"- {step.request.tool}: {step.status}"
-            for step in run.steps[-8:]
+            f"- {step.request.signature}: {step.status}{_digest(step)}"
+            for step in run.steps[-10:]
             if step.request is not None
         )
         known = ", ".join(
@@ -182,5 +191,47 @@ class SuperPlanner:
             f"Actions already taken:\n{history or '(none yet)'}\n\n"
             f"What is known so far: {known or '(nothing yet)'}\n\n"
             "Request the single most useful next action, or set done=true if the "
-            "repository is understood well enough to build a manifest."
+            "repository is understood well enough to build a manifest. Never repeat "
+            "an action already taken with the same arguments: its result is shown "
+            "above. Use file paths exactly as listed."
         )
+
+
+#: How much of a tool's result reaches the planner's prompt.
+_MAX_DIGEST_PATHS = 60
+_MAX_DIGEST_MATCHES = 8
+
+
+def _succeeded(run: AgentRun) -> set[str]:
+    """Signatures of the requests that already ran successfully."""
+    return {step.request.signature for step in run.steps if step.request is not None and step.ok}
+
+
+def _digest(step: Any) -> str:
+    """What a step returned, compactly, so the planner can act on it.
+
+    A status line such as "listed 21 of 21 matching files" tells a model that
+    files exist but not which, and a model that cannot see the paths guesses
+    them -- this one asked to read ``etl_job`` when the file is
+    ``jobs/etl_job.py``, then listed the files again to find out.
+    """
+    result = getattr(step, "result", None)
+    if result is None or not result.ok:
+        return ""
+    data = result.data or {}
+    paths = data.get("paths")
+    if isinstance(paths, list) and paths:
+        shown = ", ".join(str(path) for path in paths[:_MAX_DIGEST_PATHS])
+        more = (
+            f" (+{len(paths) - _MAX_DIGEST_PATHS} more)" if len(paths) > _MAX_DIGEST_PATHS else ""
+        )
+        return f"\n    files: {shown}{more}"
+    matches = data.get("matches")
+    if isinstance(matches, list) and matches:
+        shown = ", ".join(
+            f"{match.get('path')}:{match.get('line')}"
+            for match in matches[:_MAX_DIGEST_MATCHES]
+            if isinstance(match, dict)
+        )
+        return f"\n    matches: {shown}"
+    return ""

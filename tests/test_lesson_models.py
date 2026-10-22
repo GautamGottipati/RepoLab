@@ -179,3 +179,47 @@ class TestProgress:
         assert progress.finished_at is None
         progress.finish()
         assert progress.finished_at is not None
+
+
+class TestSilentStatements:
+    """cqlsh prints nothing when a schema change or write succeeds.
+
+    A generated lesson told a learner to expect "Keyspace created successfully."
+    The terminal truthfully showed "(no output)", and the lesson looked wrong.
+    """
+
+    @staticmethod
+    def step(action: str, observation: str, kind: str = "succeeds"):
+        from repolab.lessons.models import CheckKind, LessonStep, StepCheck
+
+        return LessonStep(
+            number=1,
+            concept="keyspaces",
+            goal="make one",
+            context="x",
+            action=action,
+            expected_observation=observation,
+            validation=StepCheck(kind=CheckKind(kind), expected="" if kind == "succeeds" else "x"),
+        )
+
+    def test_an_invented_success_message_is_replaced(self) -> None:
+        from repolab.lessons.models import SILENT_OBSERVATION
+
+        step = self.step(
+            "CREATE KEYSPACE IF NOT EXISTS demo WITH REPLICATION = "
+            "{'class': 'SimpleStrategy', 'replication_factor': 1}",
+            "Keyspace created successfully.",
+        )
+        assert step.expected_observation == SILENT_OBSERVATION
+
+    def test_an_honest_expectation_is_kept(self) -> None:
+        step = self.step("INSERT INTO t (k) VALUES (1)", "No output: the row is there.")
+        assert step.expected_observation == "No output: the row is there."
+
+    def test_a_statement_that_prints_is_left_alone(self) -> None:
+        step = self.step("SELECT * FROM t", "One row: kitchen, 21.5.")
+        assert step.expected_observation == "One row: kitchen, 21.5."
+
+    def test_an_expected_failure_is_left_alone(self) -> None:
+        step = self.step("CREATE TABLE t (k int)", "An error naming the missing key", "fails_with")
+        assert step.expected_observation == "An error naming the missing key"

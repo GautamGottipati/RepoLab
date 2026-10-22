@@ -90,6 +90,9 @@ Rules you must follow:
 - Never state what a command outputs unless the step's expectation is how you \
 would recognise it; you have not run anything.
 - Never invent file paths, line numbers, versions, timings or measurements.
+- cqlsh prints NOTHING when CREATE, ALTER, DROP, TRUNCATE, INSERT, UPDATE, \
+DELETE or USE succeeds. For such a step the expected observation is "no output", \
+never a success message such as "Keyspace created".
 - Cite at least one file from the repository listing in EVERY step, copying \
 the path exactly. A path that is not in that listing is discarded, leaving \
 the step with nothing behind it.

@@ -175,8 +175,14 @@ class TestPlannerSelection:
 
         assert agent.planner_name == "super"
         assert provider.call_count > 0
-        # The loop protection stops a model that keeps asking for the same thing.
-        assert result.run.status in {AgentStatus.FAILED, AgentStatus.EXHAUSTED}
+        # A model that keeps asking for the same thing no longer fails the
+        # investigation: the repeat is not sent, the deterministic planner moves
+        # on, and the run completes with list_files run exactly once.
+        assert result.run.status is AgentStatus.COMPLETED
+        listings = [
+            step for step in result.run.steps if step.request and step.request.tool == "list_files"
+        ]
+        assert len(listings) == 1
 
     async def test_a_model_failure_falls_back_to_deterministic_planning(self, make_repo) -> None:
         """Investigation must make progress even when the model is unavailable."""

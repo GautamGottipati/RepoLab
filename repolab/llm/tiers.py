@@ -38,6 +38,7 @@ class Purpose(StrEnum):
     ERROR_EXPLANATION = "error_explanation"
     QUICK_ANSWER = "quick_answer"
     CLASSIFICATION = "classification"
+    QUESTION_TRIAGE = "question_triage"
 
     # Super
     REPO_ARCHITECTURE = "repo_architecture"
@@ -47,6 +48,7 @@ class Purpose(StrEnum):
     MINI_LAB_GENERATION = "mini_lab_generation"
     BUILD_DIAGNOSIS = "build_diagnosis"
     INTERNAL_BEHAVIOR_EXPLANATION = "internal_behavior_explanation"
+    QUESTION_ANSWER = "question_answer"
 
     # Ultra
     EXPERIMENT_DESIGN = "experiment_design"

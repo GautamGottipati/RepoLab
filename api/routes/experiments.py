@@ -1,4 +1,11 @@
-"""Experiment submission, the approval gate, and results.
+"""Questions, the approval gate, and results.
+
+``POST /experiments`` accepts any question. A worker triages it first --
+conceptual, about the repository, or testable -- and only a testable question,
+on a repository with something real to test it against, becomes an experiment.
+The others are answered from repository evidence and official documentation,
+and come back with status ``answered``. The record is the same either way, so a
+client polls one URL whatever the question turns out to be.
 
 The gate is enforced **here**, server-side, not in the client and not in a
 prompt. ``POST /experiments`` designs an experiment and stops; execution is only
@@ -25,7 +32,14 @@ from sqlalchemy.orm import Session
 from api import deps
 from api.deps import get_session
 from api.routes.jobs import stream_events
-from repolab.db.experiments import get_experiment, list_experiments, load_experiment
+from repolab.db.experiments import (
+    KIND_CLI,
+    KIND_PENDING,
+    get_experiment,
+    list_experiments,
+    load_any_experiment,
+    save_any_experiment,
+)
 from repolab.db.jobs import create_job
 from repolab.db.models import ExperimentRecord
 from repolab.events import EventType, JobStatus
@@ -68,11 +82,19 @@ class ExperimentCreated(BaseModel):
 
 
 class ExperimentState(BaseModel):
-    """Everything a client needs to render an experiment at any stage."""
+    """Everything a client needs to render a question at any stage."""
 
     experiment_id: str
     job_id: str | None
     status: ExperimentStatus
+    kind: str = "spark"
+    """``pending`` until triaged; then ``answer``, ``spark`` or ``cli``."""
+
+    triage: dict[str, Any] | None = None
+    answer: dict[str, Any] | None = None
+    evidence: dict[str, Any] | None = None
+    """What the answer or experiment rests on, including cqlsh's verbatim output."""
+
     question: str
     repo_url: str
     commit_sha: str
@@ -109,6 +131,10 @@ def _state(record: ExperimentRecord) -> ExperimentState:
         experiment_id=record.id,
         job_id=record.job_id,
         status=experiment_status,
+        kind=record.kind or "spark",
+        triage=record.triage,
+        answer=record.answer,
+        evidence=record.evidence if record.kind != "spark" else None,
         question=record.question,
         repo_url=record.repo_url,
         commit_sha=record.commit_sha,
@@ -117,8 +143,12 @@ def _state(record: ExperimentRecord) -> ExperimentState:
         rejection=record.rejection,
         statistics=record.statistics,
         reproducibility=record.reproducibility,
-        variant_runs=len(record.variants),
-        measurements=len(record.measurements),
+        variant_runs=len(record.runs or []) if record.kind == KIND_CLI else len(record.variants),
+        measurements=(
+            len((record.evidence or {}).get("measurements", []))
+            if record.kind == KIND_CLI
+            else len(record.measurements)
+        ),
         explanation_ready=record.explanation is not None,
         explanation_error=record.explanation_error,
         error=record.error,
@@ -131,10 +161,10 @@ def ask(
     response: Response,
     session: Annotated[Session, Depends(get_session)],
 ) -> ExperimentCreated:
-    """Design an experiment for a question. Returns 202; nothing runs yet.
+    """Triage a question, then answer it or design an experiment. Returns 202.
 
-    The experiment id is allocated now so the client can poll while the design is
-    still being worked out.
+    Nothing runs yet either way. The id is allocated now so the client can poll
+    while the question is being triaged and the answer or design worked out.
     """
     import uuid
 
@@ -152,6 +182,7 @@ def ask(
             question=payload.question,
             repo_url=repo_url.normalized,
             status=ExperimentStatus.PROPOSED.value,
+            kind=KIND_PENDING,
         )
     )
     session.commit()
@@ -226,7 +257,7 @@ def approve(
     run anything at all.
     """
     record = _require(session, experiment_id)
-    experiment = load_experiment(session, experiment_id)
+    experiment = load_any_experiment(session, experiment_id)
     if experiment is None or experiment.plan is None:
         raise HTTPException(
             status.HTTP_409_CONFLICT,
@@ -246,9 +277,7 @@ def approve(
     run_job = create_job(session, experiment.repo_url, kind="experiment_run")
     experiment.job_id = run_job.id
 
-    from repolab.db.experiments import save_experiment
-
-    save_experiment(session, experiment)
+    save_any_experiment(session, experiment)
     session.commit()
 
     _emit_decision(run_job.id, experiment_id, approved=True, by=payload.approved_by)
@@ -277,7 +306,7 @@ def reject(
 ) -> ApprovalResult:
     """Decline the experiment. Nothing runs, and nothing can be run later."""
     record = _require(session, experiment_id)
-    experiment = load_experiment(session, experiment_id)
+    experiment = load_any_experiment(session, experiment_id)
     if experiment is None or experiment.status is not ExperimentStatus.AWAITING_APPROVAL:
         raise HTTPException(
             status.HTTP_409_CONFLICT,
@@ -286,9 +315,7 @@ def reject(
 
     experiment.reject(by=payload.approved_by)
 
-    from repolab.db.experiments import save_experiment
-
-    save_experiment(session, experiment)
+    save_any_experiment(session, experiment)
     session.commit()
 
     if experiment.job_id is not None:
@@ -318,6 +345,7 @@ def explanation(
         )
     return {
         "experiment_id": record.id,
+        "kind": record.kind or "spark",
         "question": record.question,
         "explanation": record.explanation,
         "statistics": record.statistics,

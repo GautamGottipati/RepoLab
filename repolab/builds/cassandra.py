@@ -56,6 +56,16 @@ OFFICIAL_CONF = "/opt/cassandra/conf/cassandra.yaml"
 #: anything at all; 4 GB starts and accepts connections.
 OFFICIAL_MEMORY = os.environ.get("REPOLAB_CASSANDRA_MEMORY", "4g")
 
+#: JVM sizing for a full node, set explicitly rather than left to
+#: ``cassandra-env.sh``. That script sizes the heap from ``free -m``, which in a
+#: container reports the *Docker VM's* memory, not the ``--memory`` limit.
+#: Measured on an 8 GB Docker VM: it chose ``-Xmx3923M`` plus up to 1961M of
+#: direct memory inside a 4 GB container, which was OOM-killed minutes after
+#: startup. With these caps the same node settles at about 1.9 GB.
+OFFICIAL_HEAP = os.environ.get("REPOLAB_CASSANDRA_HEAP", "1536M")
+OFFICIAL_DIRECT_MEMORY = os.environ.get("REPOLAB_CASSANDRA_DIRECT_MEMORY", "512M")
+OFFICIAL_JVM_ENV = f"MAX_HEAP_SIZE={OFFICIAL_HEAP} MAX_DIRECT_MEMORY_SIZE={OFFICIAL_DIRECT_MEMORY}"
+
 #: How long to wait for a fresh node to accept connections. A first start
 #: initialises the system keyspaces and is genuinely slow.
 STARTUP_TIMEOUT = 300.0
@@ -183,7 +193,7 @@ def cassandra_source_plan(manifest: RepoManifest, *, base_image: str | None = No
                 optional=True,
             ),
         ],
-        service_command=f"cd {SOURCE_DIR} && bin/cassandra -R -f",
+        service_command=f"cd {SOURCE_DIR} && {OFFICIAL_JVM_ENV} bin/cassandra -R -f",
         cli_command=f"{SOURCE_DIR}/bin/cqlsh",
         needs_submodules=True,
         memory=OFFICIAL_MEMORY,
@@ -237,7 +247,7 @@ def cassandra_official_plan(manifest: RepoManifest, *, image: str | None = None)
             ),
         ],
         # The server is the container, not a background job inside it.
-        service_command=f"{OFFICIAL_ENTRYPOINT} cassandra -R -f",
+        service_command=f"{OFFICIAL_JVM_ENV} {OFFICIAL_ENTRYPOINT} cassandra -R -f",
         cli_command=f"{OFFICIAL_BIN}/cqlsh",
         memory=OFFICIAL_MEMORY,
         smoke=smoke_test(f"{OFFICIAL_BIN}/cqlsh"),

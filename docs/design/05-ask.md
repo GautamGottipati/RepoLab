@@ -2,9 +2,30 @@
 
 ## Purpose
 
-The question, the plan, and the gate. This is where RepoLab stops being a
-viewer: a question becomes a controlled experiment, its cost is stated, and
-**nothing runs until the user approves it**.
+The question, then an answer or an experiment. Every question is **triaged
+first**, because they deserve different responses:
+
+| Kind | Example | What RepoLab does |
+|---|---|---|
+| conceptual | *What is Cassandra?* | Reads the repository (README, manifest, matching code) and its official docs, then Super answers from that evidence |
+| repository | *Where is the CQL parser implemented?* | The same, weighted towards the code |
+| testable | *What happens if I filter on a non-key column?* | Designs an experiment **on this repository's real surface** |
+
+A testable question becomes an experiment only when this repository has
+something real to run it on, and deterministic code — not the model — decides:
+
+- a runnable Spark playground → the Spark sweep (`spark.sql.shuffle.partitions`);
+- a smoke-tested, non-simulated build driven by `cqlsh` → CQL variants on the
+  built node, each run in a fresh keyspace;
+- neither → it is answered instead, and the answer **says** it could have been
+  tested and why it was not (no build yet, Mini Lab only, no model to design it).
+
+Rules settle clear phrasings; Nano classifies only what the rules leave
+ambiguous. Whatever the route, **nothing runs until the user approves it**.
+
+Answers label every claim *repository* (cites a file), *documented* (cites a
+retrieved page) or *inferred*, and a claim citing a file or URL that is not in
+the evidence is flagged on screen.
 
 ## Reads and writes
 
@@ -27,8 +48,8 @@ viewer: a question becomes a controlled experiment, its cost is stated, and
 └────────────────────────────────────────────────────┘
 ```
 
-The demo question is offered as a suggestion, because it is the question the
-whole system was built to answer.
+The Spark demo question is offered as a suggestion only when the repository has
+a runnable Spark playground; elsewhere the box is empty with a placeholder.
 
 ### While designing
 

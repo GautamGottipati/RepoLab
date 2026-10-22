@@ -20,8 +20,16 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from repolab.db.models import ExperimentRecord, ExperimentVariantRecord, MeasurementRecord
+from repolab.experiments.cli.models import CliExperiment
 from repolab.experiments.experiment import Experiment
 from repolab.experiments.models import ExperimentStatus, VariantRun
+from repolab.questions.models import AnswerResult, Triage
+
+#: What ``experiments.kind`` may hold.
+KIND_PENDING = "pending"
+KIND_ANSWER = "answer"
+KIND_SPARK = "spark"
+KIND_CLI = "cli"
 
 
 def save_experiment(session: Session, experiment: Experiment) -> ExperimentRecord:
@@ -36,6 +44,7 @@ def save_experiment(session: Session, experiment: Experiment) -> ExperimentRecor
     record.repo_url = experiment.repo_url
     record.commit_sha = experiment.commit_sha
     record.status = experiment.status.value
+    record.kind = KIND_SPARK
 
     plan = experiment.plan
     if plan is not None:
@@ -225,3 +234,135 @@ def count_measurements(session: Session, experiment_id: str) -> int:
         select(MeasurementRecord.id).where(MeasurementRecord.experiment_id == experiment_id)
     ).all()
     return len(rows)
+
+
+# ---------------------------------------------------------------------------
+# Triage, answered questions, and CLI experiments
+# ---------------------------------------------------------------------------
+
+
+def save_triage(session: Session, experiment_id: str, triage: Triage) -> None:
+    """Record how a question was classified, before it is answered or designed."""
+    record = session.get(ExperimentRecord, experiment_id)
+    if record is None:
+        return
+    record.triage = triage.model_dump(mode="json")
+    session.flush()
+
+
+def save_answer(
+    session: Session,
+    experiment_id: str,
+    result: AnswerResult,
+    *,
+    commit_sha: str = "",
+) -> ExperimentRecord | None:
+    """Store an answered question. Its status becomes ``answered``; nothing ran."""
+    from datetime import UTC, datetime
+
+    record = session.get(ExperimentRecord, experiment_id)
+    if record is None:
+        return None
+    record.kind = KIND_ANSWER
+    record.status = ExperimentStatus.ANSWERED.value
+    record.commit_sha = commit_sha or record.commit_sha
+    record.answer = result.model_dump(mode="json")
+    record.evidence = result.evidence.model_dump(mode="json")
+    record.error = None
+    record.finished_at = datetime.now(UTC)
+    session.flush()
+    return record
+
+
+def save_cli_experiment(session: Session, experiment: CliExperiment) -> ExperimentRecord:
+    """Persist a CLI experiment. Its runs live in ``runs``, not the Spark variant table."""
+    record = session.get(ExperimentRecord, experiment.id)
+    if record is None:
+        record = ExperimentRecord(id=experiment.id)
+        session.add(record)
+
+    record.kind = KIND_CLI
+    record.job_id = experiment.job_id
+    record.question = experiment.question
+    record.repo_url = experiment.repo_url
+    record.commit_sha = experiment.commit_sha
+    record.status = experiment.status.value
+
+    plan = experiment.plan
+    if plan is not None:
+        record.variable = None
+        record.baseline_value = None
+        record.repeats = plan.repeats
+        record.estimated_runs = plan.estimated_runs
+        record.estimated_seconds = plan.estimated_seconds
+        record.image = plan.environment.get("checkpoint", "")
+
+    record.proposal = _dump(experiment.proposal)
+    record.plan = _dump(plan)
+    record.rejection = _dump(experiment.rejection)
+    record.statistics = _dump(experiment.statistics)
+    record.evidence = _dump(experiment.evidence)
+    record.explanation = _dump(experiment.explanation)
+    record.reproducibility = _dump(experiment.reproducibility)
+    record.runs = [run.model_dump(mode="json") for run in experiment.runs]
+
+    record.error = experiment.error
+    record.explanation_error = experiment.explanation_error
+    record.approved_by = experiment.approved_by
+    record.created_at = experiment.created_at
+    record.approved_at = experiment.approved_at
+    record.started_at = experiment.started_at
+    record.finished_at = experiment.finished_at
+    session.flush()
+    return record
+
+
+def load_cli_experiment(session: Session, experiment_id: str) -> CliExperiment | None:
+    record = get_experiment(session, experiment_id)
+    if record is None or record.kind != KIND_CLI:
+        return None
+    return CliExperiment.model_validate(
+        {
+            "id": record.id,
+            "job_id": record.job_id,
+            "question": record.question,
+            "repo_url": record.repo_url,
+            "commit_sha": record.commit_sha,
+            "status": record.status,
+            "proposal": record.proposal,
+            "plan": record.plan,
+            "rejection": record.rejection,
+            "runs": record.runs or [],
+            "statistics": record.statistics,
+            "evidence": record.evidence,
+            "explanation": record.explanation,
+            "reproducibility": record.reproducibility,
+            "error": record.error,
+            "explanation_error": record.explanation_error,
+            "approved_by": record.approved_by,
+            "created_at": record.created_at,
+            "approved_at": record.approved_at,
+            "started_at": record.started_at,
+            "finished_at": record.finished_at,
+        }
+    )
+
+
+def load_any_experiment(session: Session, experiment_id: str) -> Experiment | CliExperiment | None:
+    """The experiment, as whichever kind it is. ``None`` for an answered question."""
+    record = get_experiment(session, experiment_id)
+    if record is None:
+        return None
+    if record.kind == KIND_CLI:
+        return load_cli_experiment(session, experiment_id)
+    if record.kind in (KIND_ANSWER, KIND_PENDING):
+        return None
+    return load_experiment(session, experiment_id)
+
+
+def save_any_experiment(
+    session: Session, experiment: Experiment | CliExperiment
+) -> ExperimentRecord:
+    if isinstance(experiment, CliExperiment):
+        return save_cli_experiment(session, experiment)
+    return save_experiment(session, experiment)

@@ -1,6 +1,6 @@
 # RepoLab Progress
 
-Last updated: 2026-10-05 (final pre-demo review)
+Last updated: 2026-10-19 (Ask RepoLab triage; CLI experiments)
 
 ---
 
@@ -1736,6 +1736,52 @@ rows.** It reports locations, never values.
   disclosure stays collapsed until clicked, and the page contains no traceback.
 - **Repetition:** `make e2e` three times in a row — 5 passed, 5 passed, 5 passed,
   in 551s, 556s and 640s. A demo that passes once is not hardened.
+
+### Phase 14 — Ask RepoLab triages questions; experiments run on the repository's own surface
+
+**The bug:** asking *"What is Cassandra?"* on the Cassandra repository produced a
+Spark shuffle-partition experiment. Every question went straight to the Spark
+experiment designer, which could only vary `spark.sql.shuffle.partitions`, so
+Ultra invented "the Cassandra repository's Spark job" to fit.
+
+**Now:**
+
+- `repolab/questions/triage.py` classifies a question as *conceptual*,
+  *repository* or *testable* — deterministic phrasing rules first, Nano
+  (`question_triage`) only when they are ambiguous — and a deterministic
+  **backend gate** decides whether a testable question can be run here.
+- `repolab/questions/answer.py` answers non-testable questions: a read-only
+  investigation (top-level README, manifest, question terms in the code, the
+  project's own official docs domain), then Super (`question_answer`) answers
+  from that evidence. Claims are labelled repository / documented / inferred
+  and verified; an invented file or URL is flagged.
+- `repolab/experiments/cli/` runs testable questions on a CLI repository:
+  Ultra proposes CQL variants, validation applies the terminal allowlist plus
+  keyspace isolation (no `USE`, no keyspace DDL, no qualified names except
+  reading system tables) and a budget; after approval every run gets a fresh
+  keyspace on one node restored from the build's checkpoint. Row counts and
+  server error classes are parsed from cqlsh's own output by Python; a node
+  that dies fails the experiment rather than recording "container not running"
+  as results.
+- `ExperimentLifecycle` is shared by both experiment kinds, so there is still
+  exactly one approval gate. Migration `a1c3e5f7b9d2` adds `kind`, `triage`,
+  `answer`, `runs` to `experiments` (additive).
+- The Ask page shows the triage, an answer card with evidence, or a CLI
+  approval card listing the exact statements; results render per kind.
+
+**Verified live** against `apache/cassandra` @ `95b178a141`: *"What is
+cassandra"* → conceptual (rules), answered by Super from `README.asc` and
+cassandra.apache.org, every claim verified. *"What happens if I filter on a
+column that is not part of the primary key?"* → testable → CLI backend; Ultra
+designed four variants (partition key, clustering column, non-key column,
+non-key column with an index), validated and stopped at the approval gate.
+
+**Tests:** `tests/test_question_triage.py`, `tests/test_question_answer.py`,
+`tests/test_cli_experiment.py`, plus API cases. 1,743 offline tests pass.
+
+**Not yet run end to end in a browser**: approving the CLI experiment starts a
+4 GB node. The cached Cassandra builds predate the heap cap in
+`repolab/builds/cassandra.py`, so rebuild from the Learn tab before approving.
 
 ---
 

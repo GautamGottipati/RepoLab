@@ -396,3 +396,89 @@ class TestEventStream:
         response = client.get(f"/experiments/{experiment.id}/events")
         assert response.status_code == 404
         assert "no event stream" in response.json()["detail"]
+
+
+class TestTriagedQuestions:
+    """An answered question and a CLI experiment travel through the same endpoints."""
+
+    def test_a_new_question_is_pending_until_triaged(self, client: TestClient) -> None:
+        created = client.post(
+            "/experiments", json={"repo_url": REPO, "question": "What is Apache Spark?"}
+        ).json()
+
+        state = client.get(f"/experiments/{created['experiment_id']}").json()
+        assert state["kind"] == "pending"
+        assert state["status"] == "proposed"
+
+    def test_an_answered_question_carries_its_answer_and_nothing_to_approve(
+        self, client: TestClient, db: sessionmaker[Session], enqueued: dict
+    ) -> None:
+        from repolab.db.experiments import save_answer, save_triage
+        from repolab.questions.models import AnswerResult, QuestionKind, Route, Triage
+
+        created = client.post(
+            "/experiments", json={"repo_url": REPO, "question": "What is Apache Spark?"}
+        ).json()
+        experiment_id = created["experiment_id"]
+        with db() as session:
+            save_triage(
+                session,
+                experiment_id,
+                Triage(
+                    kind=QuestionKind.CONCEPTUAL,
+                    reason="an idea",
+                    decided_by="rules",
+                    route=Route.ANSWER,
+                ),
+            )
+            save_answer(
+                session,
+                experiment_id,
+                AnswerResult(question="What is Apache Spark?", kind=QuestionKind.CONCEPTUAL),
+            )
+            session.commit()
+
+        state = client.get(f"/experiments/{experiment_id}").json()
+        assert state["status"] == "answered"
+        assert state["kind"] == "answer"
+        assert state["triage"]["kind"] == "conceptual"
+        assert state["answer"]["question"] == "What is Apache Spark?"
+
+        refused = client.post(f"/experiments/{experiment_id}/approve", json={})
+        assert refused.status_code == 409
+        assert enqueued["run"] == []
+
+    def test_a_cli_experiment_is_approved_through_the_same_gate(
+        self, client: TestClient, db: sessionmaker[Session], enqueued: dict
+    ) -> None:
+        from repolab.db.experiments import save_cli_experiment
+        from repolab.db.jobs import create_job
+        from repolab.experiments.cli.models import CliExperiment
+        from repolab.experiments.cli.validation import validate_cli_plan
+        from tests.test_cli_experiment import artifact, proposal
+
+        experiment = CliExperiment(
+            question="What happens if I filter on a non-key column?",
+            repo_url="https://github.com/apache/cassandra",
+            commit_sha="c" * 40,
+            plan=validate_cli_plan(proposal(), artifact=artifact()).require(),
+        )
+        experiment.await_approval()
+        with db() as session:
+            experiment.job_id = create_job(session, experiment.repo_url).id
+            save_cli_experiment(session, experiment)
+            session.commit()
+
+        state = client.get(f"/experiments/{experiment.id}").json()
+        assert state["kind"] == "cli"
+        assert state["awaiting_approval"]
+        assert state["plan"]["variants"][0]["label"] == "filter on partition key"
+
+        approved = client.post(f"/experiments/{experiment.id}/approve", json={})
+        assert approved.status_code == 200
+        assert approved.json()["status"] == "approved"
+        assert len(enqueued["run"]) == 1
+
+        again = client.post(f"/experiments/{experiment.id}/approve", json={})
+        assert again.status_code == 409
+        assert len(enqueued["run"]) == 1

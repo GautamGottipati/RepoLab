@@ -268,7 +268,9 @@ export type ExperimentStatus =
   | "running"
   | "completed"
   | "failed"
-  | "rejected";
+  | "rejected"
+  /** The question was not one to test, and was answered from evidence. */
+  | "answered";
 
 export type ExperimentPlan = {
   question: string;
@@ -380,7 +382,120 @@ export type ReproducibilityRecord = {
   finished_at: string | null;
 };
 
-export type ExperimentState = {
+// -- Ask RepoLab: triage and answers ----------------------------------------
+
+export type QuestionKind = "conceptual" | "repository" | "testable";
+
+export type Triage = {
+  kind: QuestionKind;
+  reason: string;
+  /** `rules`, `model` or `fallback`: which step settled the kind. */
+  decided_by: string;
+  route: "answer" | "experiment";
+  backend: "spark" | "cli" | null;
+  /** Why a testable question is being answered instead of tested. */
+  downgraded: string | null;
+};
+
+export type AnswerClaimKind = "repository" | "documented" | "inferred";
+
+export type AnswerClaim = { kind: AnswerClaimKind; statement: string; support: string };
+
+export type VerifiedAnswer = {
+  answer: { answer: string; claims: AnswerClaim[]; caveats: string[] };
+  unsupported: { statement: string; kind: AnswerClaimKind; problem: string }[];
+  checked_claims: number;
+  grounded: boolean;
+};
+
+export type AnswerResult = {
+  question: string;
+  kind: QuestionKind;
+  answer: VerifiedAnswer | null;
+  evidence: EvidenceBundle;
+  findings: string[];
+  downgraded: string | null;
+  error: string | null;
+};
+
+// -- the CLI experiment -------------------------------------------------------
+
+export type CliVariantSpec = { label: string; statements: string[] };
+
+export type CliExperimentPlan = {
+  kind: "cli";
+  question: string;
+  hypothesis: string;
+  setup: string[];
+  variants: CliVariantSpec[];
+  repeats: number;
+  environment: Record<string, string>;
+  fixed_settings: Record<string, string>;
+  estimated_runs: number;
+  estimated_statements: number;
+  estimated_seconds: number;
+  estimated_minutes: number;
+  concurrency: number;
+  adjustments: string[];
+  labels: string[];
+};
+
+export type Spread = {
+  samples: number[];
+  median: number;
+  minimum: number;
+  maximum: number;
+  spread: number;
+  stddev: number;
+  mean: number;
+  count: number;
+};
+
+export type CliStatementStatistics = {
+  index: number;
+  statement: string;
+  runs: number;
+  succeeded_runs: number;
+  duration_ms: Spread;
+  rows: (number | null)[];
+  rows_median: number | null;
+  rows_stable: boolean;
+  error_classes: string[];
+  error_message: string | null;
+};
+
+export type CliVariantStatistics = {
+  variant_id: string;
+  label: string;
+  runs: number;
+  failed_statements: number;
+  total_duration_ms: Spread;
+  statements: CliStatementStatistics[];
+};
+
+export type CliStatistics = {
+  variants: CliVariantStatistics[];
+  metrics: string[];
+  setup_failures: number;
+};
+
+export type CliReproducibilityRecord = {
+  repo_url: string;
+  commit_sha: string;
+  build_kind: string;
+  fidelity: string;
+  application_version: string | null;
+  checkpoint_tag: string | null;
+  cli_command: string | null;
+  memory: string | null;
+  repeats: number;
+  isolation: string;
+  reproducible: boolean;
+};
+
+// -- one question, whatever it turned into -----------------------------------
+
+type ExperimentStateCommon = {
   experiment_id: string;
   job_id: string | null;
   status: ExperimentStatus;
@@ -388,16 +503,34 @@ export type ExperimentState = {
   repo_url: string;
   commit_sha: string;
   awaiting_approval: boolean;
-  plan: ExperimentPlan | null;
+  triage: Triage | null;
+  answer: AnswerResult | null;
+  /** Set for answers and CLI experiments; a Spark experiment serves it with its explanation. */
+  evidence: EvidenceBundle | null;
   rejection: { reason: string; detail: string } | null;
-  statistics: ExperimentStatistics | null;
-  reproducibility: ReproducibilityRecord | null;
   variant_runs: number;
   measurements: number;
   explanation_ready: boolean;
   explanation_error: string | null;
   error: string | null;
 };
+
+/** A Spark experiment -- or a question not yet triaged, or answered, with no plan. */
+export type SparkExperimentState = ExperimentStateCommon & {
+  kind: "spark" | "pending" | "answer";
+  plan: ExperimentPlan | null;
+  statistics: ExperimentStatistics | null;
+  reproducibility: ReproducibilityRecord | null;
+};
+
+export type CliExperimentState = ExperimentStateCommon & {
+  kind: "cli";
+  plan: CliExperimentPlan | null;
+  statistics: CliStatistics | null;
+  reproducibility: CliReproducibilityRecord | null;
+};
+
+export type ExperimentState = SparkExperimentState | CliExperimentState;
 
 export type ExperimentCreated = {
   experiment_id: string;
@@ -419,9 +552,10 @@ export type ApprovalResult = {
 
 export type ExplanationView = {
   experiment_id: string;
+  kind: string;
   question: string;
   explanation: VerifiedExplanation;
-  statistics: ExperimentStatistics | null;
+  statistics: ExperimentStatistics | CliStatistics | null;
   evidence: EvidenceBundle | null;
   reproducibility: ReproducibilityRecord | null;
 };

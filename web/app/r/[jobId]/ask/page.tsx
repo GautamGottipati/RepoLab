@@ -1,5 +1,10 @@
 /**
- * Ask RepoLab — the question, the plan, and the gate.
+ * Ask RepoLab — the question, then an answer or an experiment.
+ *
+ * A question is triaged first. A conceptual one, or one about the code, is
+ * answered from the repository and its official docs. A testable one becomes an
+ * experiment on whatever this repository really is — its Spark job, or CQL on
+ * its built node — and nothing runs until it is approved.
  *
  * Spec: docs/design/05-ask.md
  */
@@ -11,7 +16,8 @@ import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useState } from "react";
 
 import { ActivityFeed } from "@/components/activity";
-import { ApprovalCard } from "@/components/approval-card";
+import { AnswerCard, TriageNote } from "@/components/answer-card";
+import { ApprovalCard, CliApprovalCard } from "@/components/approval-card";
 import { Badge, Empty, ErrorNote, Note, Panel, Skeleton } from "@/components/ui";
 import { api, ApiError, optional } from "@/lib/api";
 import { useEventStream } from "@/lib/events";
@@ -19,7 +25,7 @@ import type { ExperimentState } from "@/lib/types";
 
 import { useWorkspace } from "../workspace";
 
-/** The question the whole system was built to answer. */
+/** The question the Spark demo was built to answer. Offered only where it applies. */
 const DEMO_QUESTION = "Why does this job use 200 shuffle partitions?";
 
 /** Rows for a browser-initiated experiment, so a full sweep stays minutes not
@@ -28,10 +34,15 @@ const EXPERIMENT_ROWS = 40_000;
 
 export default function AskPage() {
   const router = useRouter();
-  const { jobId, job } = useWorkspace();
+  const { jobId, job, experiences } = useWorkspace();
   const repoUrl = job?.repo_url;
+  const sparkDemo = experiences?.runnable_surfaces.includes("data_playground") ?? false;
 
-  const [question, setQuestion] = useState(DEMO_QUESTION);
+  // The Spark demo question is a suggestion for a Spark repository, not a default
+  // for every repository: on Cassandra it would be a question about nothing. Until
+  // the learner types, the suggestion is derived rather than stored.
+  const [draft, setQuestion] = useState<string | null>(null);
+  const question = draft ?? (sparkDemo ? DEMO_QUESTION : "");
   const [experimentId, setExperimentId] = useState<string | null>(null);
   const [experiment, setExperiment] = useState<ExperimentState | null>(null);
   const [history, setHistory] = useState<ExperimentState[]>([]);
@@ -46,8 +57,14 @@ export default function AskPage() {
     if (!repoUrl) return;
     let cancelled = false;
     void (async () => {
-      const previous = await optional(api.experiments(repoUrl));
-      if (!cancelled && previous) setHistory(previous);
+      try {
+        const previous = await optional(api.experiments(repoUrl));
+        if (!cancelled && previous) setHistory(previous);
+      } catch (cause) {
+        // Shown on the page rather than thrown into the void: an API that is
+        // down is something to tell the learner, not an unhandled rejection.
+        if (!cancelled) setError(cause instanceof ApiError ? cause.message : String(cause));
+      }
     })();
     return () => { cancelled = true; };
   }, [repoUrl, experiment?.status]);
@@ -58,7 +75,13 @@ export default function AskPage() {
     let cancelled = false;
 
     const poll = async () => {
-      const next = await optional(api.experiment(experimentId));
+      let next: ExperimentState | null;
+      try {
+        next = await optional(api.experiment(experimentId));
+      } catch (cause) {
+        if (!cancelled) setError(cause instanceof ApiError ? cause.message : String(cause));
+        return;
+      }
       if (cancelled || !next) return;
       setExperiment(next);
       if (next.status === "failed" && next.rejection) setError(null);
@@ -68,7 +91,8 @@ export default function AskPage() {
     const settled =
       experiment?.status === "awaiting_approval" ||
       experiment?.status === "failed" ||
-      experiment?.status === "rejected";
+      experiment?.status === "rejected" ||
+      experiment?.status === "answered";
     if (settled) return () => { cancelled = true; };
 
     const timer = setInterval(poll, 1500);
@@ -118,7 +142,7 @@ export default function AskPage() {
     <div className="flex flex-col gap-6">
       <Panel
         title="Ask about this repository"
-        subtitle="If the question can be tested, RepoLab designs an experiment rather than answering from memory"
+        subtitle="Conceptual questions are answered from the repository and its docs; testable ones become an experiment on this repository"
       >
         <div className="flex flex-col gap-2">
           <textarea
@@ -126,6 +150,11 @@ export default function AskPage() {
             onChange={(event) => setQuestion(event.target.value)}
             rows={2}
             aria-label="Question"
+            placeholder={
+              sparkDemo
+                ? DEMO_QUESTION
+                : "e.g. What is this project? · Where is X implemented? · What happens if…?"
+            }
             data-testid="question"
             className="w-full resize-y rounded border border-neutral-300 px-3 py-2 text-sm outline-none focus:border-neutral-900 dark:border-neutral-700 dark:bg-neutral-900 dark:focus:border-neutral-300"
           />
@@ -137,9 +166,9 @@ export default function AskPage() {
               data-testid="ask"
               className="rounded bg-neutral-900 px-4 py-2 text-sm font-medium text-white disabled:opacity-50 dark:bg-neutral-100 dark:text-neutral-900"
             >
-              {asking || designing ? "Designing…" : "Ask"}
+              {asking || designing ? "Working…" : "Ask"}
             </button>
-            {question !== DEMO_QUESTION && (
+            {sparkDemo && question !== DEMO_QUESTION && (
               <button
                 type="button"
                 onClick={() => setQuestion(DEMO_QUESTION)}
@@ -155,7 +184,21 @@ export default function AskPage() {
       {error && <ErrorNote>{error}</ErrorNote>}
 
       {designing && (
-        <Panel title="Designing the experiment" subtitle="Nothing is executed at this stage">
+        <Panel
+          title={
+            experiment?.triage
+              ? experiment.triage.route === "experiment"
+                ? "Designing the experiment"
+                : "Reading the repository to answer"
+              : "Understanding the question"
+          }
+          subtitle="Nothing is executed at this stage"
+        >
+          {experiment?.triage && (
+            <div className="mb-3">
+              <TriageNote triage={experiment.triage} />
+            </div>
+          )}
           <Skeleton rows={2} />
           <div className="mt-3">
             <ActivityFeed events={events} height="h-40" />
@@ -176,6 +219,10 @@ export default function AskPage() {
         </Panel>
       )}
 
+      {experiment?.status === "failed" && !experiment.rejection && experiment.error && (
+        <ErrorNote>{experiment.error}</ErrorNote>
+      )}
+
       {experiment?.status === "rejected" && (
         <Note>
           Declined — nothing ran, and nothing can be run for this experiment now.
@@ -183,7 +230,21 @@ export default function AskPage() {
         </Note>
       )}
 
-      {experiment?.plan && experiment.status === "awaiting_approval" && (
+      {experiment?.status === "answered" && experiment.answer && (
+        <Panel title="Answer" subtitle="From the repository and its official documentation; nothing was run">
+          <AnswerCard result={experiment.answer} triage={experiment.triage} />
+        </Panel>
+      )}
+
+      {experiment?.status === "awaiting_approval" && experiment.triage && (
+        <TriageNote triage={experiment.triage} />
+      )}
+
+      {experiment?.kind === "cli" && experiment.plan && experiment.status === "awaiting_approval" && (
+        <CliApprovalCard plan={experiment.plan} onApprove={approve} onReject={reject} />
+      )}
+
+      {experiment?.kind !== "cli" && experiment?.plan && experiment.status === "awaiting_approval" && (
         <ApprovalCard plan={experiment.plan} onApprove={approve} onReject={reject} />
       )}
 
@@ -233,5 +294,6 @@ function StatusBadge({ status }: { status: ExperimentState["status"] }) {
   if (status === "awaiting_approval") return <Badge tone="attention">needs approval</Badge>;
   if (status === "failed") return <Badge tone="bad">refused</Badge>;
   if (status === "rejected") return <Badge>declined</Badge>;
+  if (status === "answered") return <Badge tone="good">answered</Badge>;
   return <Badge>{status}</Badge>;
 }

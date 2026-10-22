@@ -370,6 +370,18 @@ class ExperimentRecord(Base):
     commit_sha: Mapped[str] = mapped_column(String(64), default="")
     status: Mapped[str] = mapped_column(String(32), default="proposed", index=True)
 
+    kind: Mapped[str] = mapped_column(String(16), default="spark", server_default="spark")
+    """``pending`` until triaged, then ``answer``, ``spark`` or ``cli``."""
+
+    triage: Mapped[dict[str, Any] | None] = mapped_column(JsonColumn, nullable=True)
+    """How the question was classified, and why it was answered or tested."""
+
+    answer: Mapped[dict[str, Any] | None] = mapped_column(JsonColumn, nullable=True)
+    """An answered question's grounded answer and evidence."""
+
+    runs: Mapped[list[Any] | None] = mapped_column(JsonColumn, nullable=True)
+    """A CLI experiment's runs, statement by statement, as cqlsh returned them."""
+
     variable: Mapped[str | None] = mapped_column(String(255), nullable=True)
     baseline_value: Mapped[int | None] = mapped_column(Integer, nullable=True)
     repeats: Mapped[int] = mapped_column(Integer, default=0)

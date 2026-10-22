@@ -15,6 +15,8 @@
 import { use, useEffect, useMemo, useState } from "react";
 
 import { ActivityFeed } from "@/components/activity";
+import { AnsweredQuestion } from "@/components/answer-card";
+import { CliResults } from "@/components/cli-results";
 import { BarChart, Sparkline, type Bar } from "@/components/charts";
 import { ClaimList, EvidencePanel, UnsupportedClaims } from "@/components/evidence";
 import { Badge, DeterminismTag, Empty, ErrorNote, Note, Panel, Skeleton, Stat } from "@/components/ui";
@@ -23,9 +25,11 @@ import { field, isBoolean, isNumber, useEventStream } from "@/lib/events";
 import { count, ms, percent, shortHash } from "@/lib/format";
 import type {
   ExperimentState,
+  ExperimentStatistics,
   ExplanationView,
   JobEvent,
   MetricComparison,
+  SparkExperimentState,
 } from "@/lib/types";
 
 /**
@@ -46,7 +50,11 @@ export default function ResultsPage({ params }: PageProps<"/r/[jobId]/ask/[exper
   const [error, setError] = useState<string | null>(null);
 
   const { events } = useEventStream(api.experimentEventsUrl(experimentId));
-  const finished = experiment?.status === "completed" || experiment?.status === "failed";
+  const finished =
+    experiment?.status === "completed" ||
+    experiment?.status === "failed" ||
+    experiment?.status === "rejected" ||
+    experiment?.status === "answered";
 
   useEffect(() => {
     let cancelled = false;
@@ -70,6 +78,43 @@ export default function ResultsPage({ params }: PageProps<"/r/[jobId]/ask/[exper
     return () => { cancelled = true; clearInterval(timer); };
   }, [experimentId, finished, explanation, experiment?.explanation_ready]);
 
+  // A question becomes one of three things; each has its own screen.
+  if (experiment?.kind === "cli") {
+    return (
+      <CliResults
+        experiment={experiment}
+        explanation={explanation}
+        events={events}
+        error={error}
+        finished={finished}
+      />
+    );
+  }
+  if (experiment?.kind === "answer") return <AnsweredQuestion experiment={experiment} />;
+  return (
+    <SparkResults
+      experiment={experiment}
+      explanation={explanation}
+      events={events}
+      error={error}
+      finished={finished}
+    />
+  );
+}
+
+function SparkResults({
+  experiment,
+  explanation,
+  events,
+  error,
+  finished,
+}: {
+  experiment: SparkExperimentState | null;
+  explanation: ExplanationView | null;
+  events: JobEvent[];
+  error: string | null;
+  finished: boolean;
+}) {
   const [showAllMetrics, setShowAllMetrics] = useState(false);
 
   const live = useMemo(() => liveVariants(events), [events]);
@@ -444,7 +489,7 @@ const toBar =
 
 function barsFromComparison(
   comparison: MetricComparison,
-  statistics: NonNullable<ExperimentState["statistics"]>,
+  statistics: ExperimentStatistics,
 ): Bar[] {
   return comparison.points.map((point) => {
     const variant = statistics.variants.find((entry) => entry.value === point.value);
@@ -482,7 +527,7 @@ function formatterFor(comparison: MetricComparison): (value: number) => string {
   return (value) => value.toLocaleString();
 }
 
-function unstable(statistics: NonNullable<ExperimentState["statistics"]>): string[] {
+function unstable(statistics: ExperimentStatistics): string[] {
   const found: string[] = [];
   for (const variant of statistics.variants) {
     for (const aggregate of Object.values(variant.aggregates)) {
@@ -506,6 +551,8 @@ function StatusBadge({ status }: { status?: ExperimentState["status"] }) {
         <Badge tone="live">starting</Badge>
       ) : status === "failed" ? (
         <Badge tone="bad">failed</Badge>
+      ) : status === "answered" ? (
+        <Badge tone="good">answered</Badge>
       ) : (
         <Badge>{status}</Badge>
       )}

@@ -51,6 +51,8 @@ class ExperimentStatus(StrEnum):
     COMPLETED = "completed"
     FAILED = "failed"
     REJECTED = "rejected"
+    ANSWERED = "answered"
+    """The question was not one to test, so it was answered from evidence instead."""
 
     @property
     def is_terminal(self) -> bool:
@@ -58,6 +60,7 @@ class ExperimentStatus(StrEnum):
             ExperimentStatus.COMPLETED,
             ExperimentStatus.FAILED,
             ExperimentStatus.REJECTED,
+            ExperimentStatus.ANSWERED,
         }
 
     @property

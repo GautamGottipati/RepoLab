@@ -463,6 +463,14 @@ class TestServiceBasedBuilds:
             assert candidate.plan.service_command, f"{candidate.kind} has no server to start"
             assert "cassandra" in candidate.plan.service_command
 
+    def test_the_cassandra_plans_cap_the_heap(self, manifest) -> None:
+        """Left to itself, cassandra-env.sh sizes the heap from the Docker VM's
+        memory rather than the container limit, and the node is OOM-killed."""
+        for candidate in candidates(manifest):
+            assert "MAX_HEAP_SIZE=" in candidate.plan.service_command, (
+                f"{candidate.kind} lets Cassandra size its own heap"
+            )
+
     def test_the_spark_plan_declares_none(self, make_repo) -> None:
         """Nothing P0 depends on acquired a service it does not need."""
         from repolab.builds import spark_plan

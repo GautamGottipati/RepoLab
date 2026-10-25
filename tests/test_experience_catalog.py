@@ -117,16 +117,26 @@ class TestNothingPretendsToWork:
         assert web.status is ExperienceStatus.DETECTED_ONLY
         assert web.unavailable_reason.startswith(NOT_RUNNABLE)
 
-    @pytest.mark.parametrize("surface", [SurfaceType.WEB, SurfaceType.API, SurfaceType.NOTEBOOK])
-    def test_surfaces_with_no_adapter_say_so(
-        self, airflow: RepoManifest, surface: SurfaceType
-    ) -> None:
-        item = experiences_for(airflow).of(surface)
+    def test_surfaces_with_no_adapter_say_so(self, airflow: RepoManifest) -> None:
+        item = experiences_for(airflow).of(SurfaceType.NOTEBOOK)
 
         assert item is not None
         assert item.supported is False
         assert item.adapter is None
         assert NO_ADAPTER in item.unavailable_reason
+
+    @pytest.mark.parametrize("surface", [SurfaceType.WEB, SurfaceType.API])
+    def test_an_adapter_without_a_plan_is_still_not_runnable(
+        self, airflow: RepoManifest, surface: SurfaceType
+    ) -> None:
+        """Web and API have an adapter now; detection alone still runs nothing."""
+        item = experiences_for(airflow).of(surface)
+
+        assert item is not None
+        assert item.supported is True
+        assert item.runnable is False
+        assert item.route is None
+        assert "investigate the repository again" in item.unavailable_reason
 
     def test_the_primary_surface_is_not_runnable_just_for_being_primary(
         self, airflow: RepoManifest

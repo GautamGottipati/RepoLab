@@ -9,9 +9,9 @@
 
 "use client";
 
-import { ClaimList, EvidencePanel, UnsupportedClaims } from "./evidence";
-import { Badge, Note, Panel } from "./ui";
-import type { AnswerResult, ExperimentState, Triage } from "@/lib/types";
+import { AnswerView } from "./answer-view";
+import { Badge, Panel } from "./ui";
+import type { ArchitectureGraph, ExperimentState, Triage } from "@/lib/types";
 
 const KIND_LABEL: Record<Triage["kind"], string> = {
   conceptual: "Conceptual question",
@@ -41,54 +41,16 @@ export function TriageNote({ triage }: { triage: Triage }) {
   );
 }
 
-/** The answer, its claims, and the evidence they cite. */
-export function AnswerCard({ result, triage }: { result: AnswerResult; triage: Triage | null }) {
-  const verified = result.answer;
-
-  return (
-    <div className="flex flex-col gap-5" data-testid="answer-card">
-      {triage && <TriageNote triage={triage} />}
-
-      {result.downgraded && <Note>{result.downgraded}</Note>}
-
-      {verified ? (
-        <>
-          <UnsupportedClaims claims={verified.unsupported} />
-          <p className="text-sm leading-relaxed" data-testid="answer">
-            {verified.answer.answer}
-          </p>
-          <ClaimList claims={verified.answer.claims} />
-          {verified.answer.caveats.length > 0 && (
-            <div>
-              <h4 className="text-xs font-semibold uppercase tracking-wide text-neutral-500">
-                Caveats
-              </h4>
-              <ul className="mt-2 list-disc pl-5 text-sm text-neutral-600 dark:text-neutral-400">
-                {verified.answer.caveats.map((caveat) => (
-                  <li key={caveat}>{caveat}</li>
-                ))}
-              </ul>
-            </div>
-          )}
-        </>
-      ) : (
-        <p className="text-sm text-neutral-600 dark:text-neutral-400">
-          {result.error ?? "No answer could be produced."}
-        </p>
-      )}
-
-      <div>
-        <h4 className="mb-2 text-xs font-semibold uppercase tracking-wide text-neutral-500">
-          Evidence
-        </h4>
-        <EvidencePanel evidence={result.evidence} initialTab="code" />
-      </div>
-    </div>
-  );
-}
-
 /** The results screen for a question that was answered rather than tested. */
-export function AnsweredQuestion({ experiment }: { experiment: ExperimentState }) {
+export function AnsweredQuestion({
+  experiment,
+  jobId,
+  architecture = null,
+}: {
+  experiment: ExperimentState;
+  jobId?: string;
+  architecture?: ArchitectureGraph | null;
+}) {
   const result = experiment.answer;
   return (
     <div className="flex flex-col gap-6">
@@ -106,7 +68,13 @@ export function AnsweredQuestion({ experiment }: { experiment: ExperimentState }
         }
       >
         {result ? (
-          <AnswerCard result={result} triage={experiment.triage} />
+          <AnswerView
+            result={result}
+            repoUrl={experiment.repo_url}
+            commitSha={experiment.commit_sha}
+            architecture={architecture}
+            askHref={jobId ? (question) => `/r/${jobId}/ask?q=${encodeURIComponent(question)}` : undefined}
+          />
         ) : (
           <p className="text-sm text-neutral-500">The answer has not been recorded.</p>
         )}

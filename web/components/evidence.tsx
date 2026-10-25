@@ -23,7 +23,7 @@ type AnyClaim = { kind: AnyClaimKind; statement: string; support: string };
 const KIND_STYLE: Record<AnyClaimKind, { border: string; label: string; tone: string }> = {
   repository: {
     border: "border-l-4 border-l-violet-500",
-    label: "repository",
+    label: "static · repository",
     tone: "text-violet-700 dark:text-violet-300",
   },
   measured: {

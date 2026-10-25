@@ -226,6 +226,26 @@ def _looks_like_test(path: str) -> bool:
     )
 
 
+#: npm script names and commands that start a server.
+_SERVER_SCRIPT = re.compile(r"^(start|dev|serve|develop|preview)(:|$)")
+_SERVER_COMMAND = re.compile(
+    r"\b(serve|next (dev|start)|nodemon|vite(?! build)|nuxt (dev|start))\b"
+)
+_TEST_SCRIPT = re.compile(r"^(test|e2e|cy|coverage)(:|$)")
+_TEST_COMMAND = re.compile(r"\b(jest|mocha|vitest|karma|playwright|cypress|ng (test|e2e))\b")
+
+
+def _script_kind(name: str, command: str) -> EntryPointKind:
+    """What an npm script is. Only a package's ``bin`` is its command line:
+    ``npm run build`` or ``npm run lint`` is how the project is developed."""
+    lowered = name.lower()
+    if _TEST_SCRIPT.match(lowered) or _TEST_COMMAND.search(command):
+        return EntryPointKind.TEST_SUITE
+    if _SERVER_SCRIPT.match(lowered) or _SERVER_COMMAND.search(command):
+        return EntryPointKind.WEB_SERVER
+    return EntryPointKind.TOOLING
+
+
 def _package_json_entries(text: str) -> list[tuple[str, str, EntryPointKind]]:
     try:
         data = json.loads(text)
@@ -238,12 +258,7 @@ def _package_json_entries(text: str) -> list[tuple[str, str, EntryPointKind]]:
     for name, command in (data.get("scripts") or {}).items():
         if not isinstance(command, str):
             continue
-        kind = (
-            EntryPointKind.WEB_SERVER
-            if any(hint in command for hint in ("dev", "start", "serve", "next"))
-            else EntryPointKind.CLI_SCRIPT
-        )
-        found.append((f"npm run {name}", command, kind))
+        found.append((f"npm run {name}", command, _script_kind(str(name), command)))
 
     bins = data.get("bin")
     if isinstance(bins, dict):

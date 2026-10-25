@@ -35,6 +35,14 @@ HTTP_SIGNALS: tuple[tuple[str, re.Pattern[str]], ...] = (
     ("django_urls", re.compile(r"urlpatterns\s*=")),
     ("express_app", re.compile(r"express\s*\(\s*\)")),
     ("uvicorn_run", re.compile(r"uvicorn\.run\s*\(")),
+    (
+        "frontend_app",
+        re.compile(
+            r"\.bootstrapModule\s*\(|\bbootstrapApplication\s*\(|"
+            r"ReactDOM\.(?:createRoot|render|hydrateRoot)\s*\(|\bcreateRoot\s*\(\s*document\b|"
+            r"\bcreateApp\s*\([^)]*\)\s*\.mount\s*\("
+        ),
+    ),
 )
 
 CLI_SIGNALS: tuple[tuple[str, re.Pattern[str]], ...] = (
@@ -58,11 +66,43 @@ SHELL_SIGNALS: tuple[tuple[str, re.Pattern[str]], ...] = (
 #: A long-running server, as opposed to a batch job that exits.
 SERVER_SIGNALS: tuple[tuple[str, re.Pattern[str]], ...] = (
     ("server_daemon", re.compile(r"class\s+\w*Daemon\b")),
-    ("server_daemon", re.compile(r"\.(?:bind|listen)\s*\(|ServerSocket\s*\(")),
+    # A socket bound to an address or a server listening on a port. Not
+    # JavaScript's ``fn.bind(this)``, which binds a function, not a socket.
+    (
+        "server_daemon",
+        re.compile(
+            r"\.bind\s*\(\s*\(\s*['\"]|\.listen\s*\(\s*(?:\d|port\b|PORT\b|process\.env)"
+            r"|ServerSocket\s*\("
+        ),
+    ),
     ("server_daemon", re.compile(r"\bserve_forever\s*\(|\brun_server\s*\(")),
 )
 
 #: Ports commonly meaning an HTTP surface, used only as corroboration.
+#: Built output checked into the repository: ``main-es2015.33497bada5.js``,
+#: ``vendor.min.js``. Its code is a bundler's, not the project's -- a minified
+#: framework's ``.listen(`` says nothing about what this repository ships.
+_BUNDLE_NAME = re.compile(r"(\.min\.(?:js|mjs|css)$)|([.-][0-9a-f]{8,}\.(?:js|mjs|css)$)", re.I)
+
+#: Lines this long are generated, not written.
+_GENERATED_LINE = 1000
+
+
+def is_generated_bundle(path: str, text: str | None = None) -> bool:
+    """Whether *path* is bundled or minified output rather than source."""
+    if _BUNDLE_NAME.search(path.rsplit("/", 1)[-1]):
+        return True
+    if text is None:
+        return False
+    lines = text.splitlines()[:20]
+    return any(len(line) > _GENERATED_LINE for line in lines)
+
+
+_TOOL_CONFIG = re.compile(
+    r"^(karma|protractor|jest|vitest|playwright|cypress|webpack|babel|rollup|vite)\.conf(ig)?\.",
+    re.I,
+)
+
 _PORT = re.compile(r"(?:port\s*[=:]\s*|EXPOSE\s+)(?P<port>\d{2,5})", re.I)
 
 
@@ -71,14 +111,20 @@ def detect_surfaces(context: DetectionContext, budget: ReadBudget) -> DetectorRu
     run = DetectorRun()
     scanned = 0
 
-    candidates = prioritized([e for e in context.tree.files if e.extension in SCANNABLE_EXTENSIONS])
+    candidates = prioritized(
+        [
+            e
+            for e in context.tree.files
+            if e.extension in SCANNABLE_EXTENSIONS and not is_generated_bundle(e.path)
+        ]
+    )
     for entry in candidates:
         if scanned >= budget.limits.max_scanned_files:
             budget.report.record("max_scanned_files")
             break
 
         text = read_text(context.path_for(entry.path), budget=budget)
-        if text is None:
+        if text is None or is_generated_bundle(entry.path, text):
             continue
         scanned += 1
 
@@ -102,7 +148,9 @@ def detect_surfaces(context: DetectionContext, budget: ReadBudget) -> DetectorRu
                     ],
                 )
 
-        for port_match in _PORT.finditer(text):
+        # A test runner's own port (karma, protractor...) is not the application's.
+        ports = () if _TOOL_CONFIG.search(entry.name) else _PORT.finditer(text)
+        for port_match in ports:
             run.add(
                 "port",
                 port_match.group("port"),

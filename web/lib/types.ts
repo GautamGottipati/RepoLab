@@ -110,29 +110,317 @@ export type RepoManifest = {
 
 // -- architecture -----------------------------------------------------------
 
+/** Broad architectural roles. The generic graph never depends on `subtype`. */
+export type NodeCategory =
+  | "entry_point"
+  | "input"
+  | "output"
+  | "frontend"
+  | "api"
+  | "service"
+  | "worker"
+  | "database"
+  | "cache"
+  | "queue"
+  | "storage"
+  | "pipeline"
+  | "transform"
+  | "processor"
+  | "scheduler"
+  | "task"
+  | "cli"
+  | "command"
+  | "model"
+  | "inference"
+  | "external_service"
+  | "library"
+  | "core_engine"
+  | "configuration"
+  | "other";
+
+export type EdgeType =
+  | "data_flow"
+  | "control_flow"
+  | "calls"
+  | "reads_from"
+  | "writes_to"
+  | "publishes_to"
+  | "consumes_from"
+  | "triggers"
+  | "depends_on"
+  | "routes_to"
+  | "creates";
+
+/** `static` is read from source; `inferred` is interpreted. Measured values live in the overlay. */
+export type Provenance = "static" | "inferred";
+
+export type PropertyValue = string | number | boolean | string[];
+
 export type ArchitectureNode = {
   id: string;
-  kind: "entrypoint" | "module" | "service" | "config" | "datastore" | "external";
-  name: string;
+  label: string;
+  category: NodeCategory;
+  subtype: string | null;
+  technology: string | null;
   description: string | null;
-  file_references: CodeReference[];
-  group: string | null;
+  runtime_significance: string | null;
+  source_references: CodeReference[];
+  properties: Record<string, PropertyValue>;
+  confidence: number;
+  provenance: Provenance;
+  detected_because: string;
+  /** Fields a model wrote, shown as inferred. */
+  inferred_fields: string[];
+  children: string[];
+  surface: string | null;
+  /** Absent on graphs stored before schema 3. */
+  level?: ArchitectureLevel;
+  subsystem?: string | null;
+  learning_importance?: number;
 };
 
 export type ArchitectureEdge = {
   source: string;
   target: string;
-  kind: "depends_on" | "invokes" | "configures" | "reads" | "writes" | "exposes";
+  type: EdgeType;
   description: string | null;
+  provenance: Provenance;
+  evidence: CodeReference[];
+  confidence: number;
+};
+
+export type ImportantFile = { path: string; role: string; node_ids: string[] };
+
+export type ArchitectureFlow = {
+  name: string;
+  node_ids: string[];
+  description: string | null;
+  provenance: Provenance;
+};
+
+export type ArchitectureViewKind =
+  | "data_flow"
+  | "request_flow"
+  | "service_flow"
+  | "workflow"
+  | "command_flow"
+  | "component_flow"
+  | "system_overview";
+
+export type ArchitectureGraph = {
+  schema_version: number;
+  nodes: ArchitectureNode[];
+  edges: ArchitectureEdge[];
+  entry_points: string[];
+  important_files: ImportantFile[];
+  interaction_surfaces: string[];
+  summary: string | null;
+  summary_provenance: Provenance;
+  primary_flows: ArchitectureFlow[];
+  default_view: ArchitectureViewKind;
+  completeness: "complete" | "partial";
+  gaps: string[];
+  generated_by: "deterministic" | "super_enriched";
+  dropped: Record<string, number>;
+  /** Schema 3: the progressive levels. Absent or empty on older graphs. */
+  understanding?: RepositoryUnderstanding | null;
+  system_model?: SystemModel;
+  subsystems?: Subsystem[];
+  learning_path?: LearningStep[];
+  walkthroughs?: Walkthrough[];
+};
+
+export type ArchitectureLevel = "system" | "subsystem" | "component" | "implementation";
+
+export type RepositoryKind =
+  | "distributed_system"
+  | "framework"
+  | "library"
+  | "web_application"
+  | "api_service"
+  | "data_platform"
+  | "workflow_system"
+  | "database"
+  | "cli_application"
+  | "ml_system"
+  | "developer_tool"
+  | "hybrid"
+  | "unknown";
+
+export type EvidenceKind =
+  | "readme"
+  | "source"
+  | "configuration"
+  | "build"
+  | "documentation"
+  | "component"
+  | "subsystem";
+
+/** One citation behind an explanation: the answer to "how do you know?". */
+export type Evidence = {
+  kind: EvidenceKind;
+  label: string;
+  path: string | null;
+  line: number | null;
+  url: string | null;
+  target_id: string | null;
+  excerpt: string | null;
+};
+
+export type RepositoryUnderstanding = {
+  name: string;
+  one_line_description: string | null;
+  repository_type: RepositoryKind;
+  type_provenance: Provenance;
+  type_candidates: RepositoryKind[];
+  type_reasons: string[];
+  beginner_explanation: string | null;
+  primary_purpose: string | null;
+  primary_users: string | null;
+  languages: string[];
+  frameworks: string[];
+  main_interaction_surfaces: string[];
+  recommended_start: string | null;
+  confidence: number;
+  evidence: Evidence[];
+  /** Fields Nemotron wrote; everything else was quoted or computed. */
+  inferred_fields: string[];
+};
+
+export type StartingPoint = {
+  path: string;
+  is_directory: boolean;
+  reason: string;
+  learn_about: string[];
+};
+
+export type Subsystem = {
+  id: string;
+  label: string;
+  description: string | null;
+  paths: string[];
+  declared_by: string;
+  file_count: number;
+  languages: string[];
+  learning_importance: number;
+  importance_signals: Record<string, number>;
+  component_ids: string[];
+  starting_points: StartingPoint[];
+  outline: string[];
+  evidence: Evidence[];
+  provenance: Provenance;
+  inferred_fields: string[];
+};
+
+export type SystemConcept = {
+  id: string;
+  label: string;
+  term: string | null;
+  what_it_does: string;
+  why_it_matters: string;
+  role: string;
+  subsystem_ids: string[];
+  member_ids: string[];
+  evidence: Evidence[];
+  confidence: number;
+  provenance: Provenance;
+  learning_importance: number;
+};
+
+export type ConceptLink = {
+  source: string;
+  target: string;
+  type: EdgeType;
+  description: string | null;
+  provenance: Provenance;
+  evidence: Evidence[];
+};
+
+export type SystemModel = {
+  concepts: SystemConcept[];
+  links: ConceptLink[];
+  provenance: Provenance;
+};
+
+export type LearningStep = {
+  title: string;
+  why: string;
+  target_kind: "concept" | "subsystem" | "node" | "walkthrough" | "question";
+  target_id: string | null;
+  question: string | null;
+  provenance: Provenance;
+};
+
+export type WalkthroughStep = { target_id: string; label: string; detail: string | null };
+
+export type Walkthrough = {
+  id: string;
+  name: string;
+  kind: "request" | "job" | "command" | "dag_run" | "call" | "event";
+  level: ArchitectureLevel;
+  steps: WalkthroughStep[];
+  description: string | null;
+  provenance: Provenance;
+  /** Set when the path runs inside one subsystem: shown when that is explored. */
+  subsystem: string | null;
+};
+
+export type ExperimentAvailability = {
+  available: boolean;
+  backend: "spark" | "cli" | null;
+  reason: string;
+  question: string | null;
+  /** Unavailable only because nothing has been built yet. */
+  needs_environment?: boolean;
+};
+
+export type NodeActions = {
+  ask: boolean;
+  experiment: ExperimentAvailability;
+  suggested_questions: string[];
 };
 
 export type ArchitectureView = {
   job_id: string;
+  repo_url: string;
+  commit_sha: string;
   generated_by: string;
   node_count: number;
   edge_count: number;
   summary: string | null;
-  graph: { nodes: ArchitectureNode[]; edges: ArchitectureEdge[] };
+  graph: ArchitectureGraph;
+  node_actions: Record<string, NodeActions>;
+  /** The same, for concepts and subsystems, by their ids. */
+  concept_actions?: Record<string, NodeActions>;
+};
+
+/** One value a real run produced. Never estimated. */
+export type MeasuredValue = {
+  name: string;
+  value: number;
+  unit: string;
+  source: string;
+  provenance: "measured";
+};
+
+export type RuntimeOverlay = {
+  measurements: Record<string, MeasuredValue[]>;
+  /** The same values on the concept/subsystem holding each component. Never combined. */
+  by_group?: Record<string, MeasuredValue[]>;
+  runs: string[];
+  notes: string[];
+};
+
+/** The component a question is asked about, sent with it to Ask RepoLab. */
+export type ArchitectureFocus = {
+  node_id: string;
+  label: string;
+  category: string;
+  source_references: CodeReference[];
+  relationships: string[];
+  level?: "system" | "subsystem" | "component";
+  subsystem?: string | null;
+  directories?: string[];
 };
 
 // -- the Spark playground ---------------------------------------------------
@@ -395,27 +683,103 @@ export type Triage = {
   backend: "spark" | "cli" | null;
   /** Why a testable question is being answered instead of tested. */
   downgraded: string | null;
+  /** How the answer is laid out, when the phrasing settled it. */
+  shape?: ExplanationShape | null;
 };
 
-export type AnswerClaimKind = "repository" | "documented" | "inferred";
+/** How an answer is laid out. Presentation only; `QuestionKind` routes. */
+export type ExplanationShape =
+  | "flow"
+  | "execution"
+  | "definition"
+  | "why"
+  | "comparison"
+  | "location"
+  | "architecture"
+  | "debugging"
+  | "general";
+
+export type AnswerClaimKind = "repository" | "documented" | "inferred" | "measured";
 
 export type AnswerClaim = { kind: AnswerClaimKind; statement: string; support: string };
 
+export type VisualNode = {
+  id: string;
+  label: string;
+  kind: string;
+  component_id: string | null;
+  source: string | null;
+};
+
+export type VisualEdge = {
+  source: string;
+  target: string;
+  label: string;
+  support: string;
+  /** `static` when a file or cited relationship shows it; `inferred` otherwise. */
+  provenance: string;
+};
+
+export type AnswerVisual = { nodes: VisualNode[]; edges: VisualEdge[] };
+
+export type AnswerStep = { title: string; description: string; sources: string[] };
+
+export type SectionBasis = "evidenced" | "inferred" | "unknown";
+
+export type AnswerSection = {
+  key: string;
+  title: string;
+  body: string;
+  basis: SectionBasis;
+  sources: string[];
+};
+
+export type ComparisonRow = {
+  attribute: string;
+  values: string[];
+  support: string;
+  /** `static`, `inferred`, or `unknown` when the evidence did not establish it. */
+  provenance: string;
+};
+
+export type AnswerLocation = { role: string; path: string; line: number | null; why: string };
+
+export type GroundedAnswer = {
+  answer: string;
+  claims: AnswerClaim[];
+  caveats: string[];
+  /** The fields below were added later; answers stored before them lack them. */
+  summary?: string;
+  shape?: ExplanationShape;
+  visual?: AnswerVisual | null;
+  steps?: AnswerStep[];
+  sections?: AnswerSection[];
+  comparison?: { subjects: string[]; rows: ComparisonRow[] } | null;
+  locations?: AnswerLocation[];
+  follow_ups?: string[];
+};
+
 export type VerifiedAnswer = {
-  answer: { answer: string; claims: AnswerClaim[]; caveats: string[] };
+  answer: GroundedAnswer;
   unsupported: { statement: string; kind: AnswerClaimKind; problem: string }[];
   checked_claims: number;
   grounded: boolean;
+  /** Relationships the model drew that the evidence did not show. Not drawn. */
+  not_established?: string[];
+  /** What verification removed from the layout, and why. */
+  dropped?: Record<string, number>;
 };
 
 export type AnswerResult = {
   question: string;
   kind: QuestionKind;
+  shape?: ExplanationShape;
   answer: VerifiedAnswer | null;
   evidence: EvidenceBundle;
   findings: string[];
   downgraded: string | null;
   error: string | null;
+  follow_ups?: string[];
 };
 
 // -- the CLI experiment -------------------------------------------------------
@@ -817,6 +1181,12 @@ export type AvailableExperience = {
   weak: boolean;
   /** Whether an adapter exists at all, regardless of this repository. */
   supported: boolean;
+  /** The confidence in words. */
+  strength?: "strong" | "moderate" | "weak";
+  /** What this kind of surface is, in plain words. */
+  meaning?: string;
+  /** Why it was detected, as readable phrases. */
+  signals?: string[];
 };
 
 export type ExperienceCatalog = {
@@ -879,4 +1249,271 @@ export type Dashboard = {
   north_star: Metric;
   metric_count: number;
   measured_count: number;
+};
+
+// -- live experiences: running a repository's web and API services -------------
+
+export type RuntimeStatus =
+  | "planning"
+  | "preparing"
+  | "installing"
+  | "building"
+  | "starting"
+  | "health_checking"
+  | "running"
+  | "stopped"
+  | "build_failed"
+  | "start_failed"
+  | "health_check_failed"
+  | "dependency_missing"
+  | "port_not_found"
+  | "unsupported"
+  | "timeout";
+
+export type DependencyState = "provisionable" | "external_required" | "unsupported";
+
+export type RuntimeDependency = {
+  kind: "mongodb" | "postgres" | "redis";
+  state: DependencyState;
+  env_var: string | null;
+  reason: string;
+  evidence: CodeReference[];
+  services: string[];
+};
+
+export type EnvVarPlan = {
+  name: string;
+  kind: "generated" | "secret" | "dependency" | "required";
+  value: string | null;
+  evidence: CodeReference[];
+};
+
+export type RouteRef = { method: string; path: string; file: string; line: number };
+
+export type PlanWarning = { message: string; evidence: CodeReference[] };
+
+export type ServicePlan = {
+  name: string;
+  surfaces: string[];
+  working_directory: string;
+  runtime: string;
+  framework: string | null;
+  image: string;
+  image_reason: string;
+  package_manager: string;
+  install: string;
+  build: string | null;
+  start: string;
+  script: string;
+  port: number;
+  port_source: string;
+  env: EnvVarPlan[];
+  health_path: string;
+  routes: RouteRef[];
+  evidence: CodeReference[];
+  inferred_fields: string[];
+  warnings: PlanWarning[];
+};
+
+export type RuntimePlan = {
+  services: ServicePlan[];
+  dependencies: RuntimeDependency[];
+  unplanned: Record<string, string>;
+  adapter_version: string;
+};
+
+export type RuntimeStep = {
+  name: string;
+  status: "done" | "failed" | "skipped";
+  detail: string;
+  command: string | null;
+  seconds: number;
+  log_tail: string;
+};
+
+export type RuntimeFailure = {
+  status: RuntimeStatus;
+  reason: string;
+  evidence: CodeReference[];
+  next_step: string | null;
+  log_tail: string;
+};
+
+export type ServiceRuntime = {
+  name: string;
+  surfaces: string[];
+  status: RuntimeStatus;
+  steps: RuntimeStep[];
+  port: number | null;
+  port_source: string | null;
+  host_port: number | null;
+  health: { path: string; status_code: number | null; ok: boolean; detail: string } | null;
+  failure: RuntimeFailure | null;
+  warnings: PlanWarning[];
+  log_tail: string;
+};
+
+export type RuntimeState = {
+  id: string;
+  repo_url: string;
+  commit_sha: string;
+  status: RuntimeStatus;
+  services: ServiceRuntime[];
+  dependencies: RuntimeDependency[];
+};
+
+export type RuntimeView = {
+  runtime_id: string | null;
+  job_id: string | null;
+  events_url: string | null;
+  status: RuntimeStatus | null;
+  state: RuntimeState | null;
+  plan: RuntimePlan | null;
+  /** A live origin per service, present only once that service is running. */
+  services: { name: string; origin: string | null }[];
+};
+
+export type ExplorerResponse = {
+  status_code: number;
+  headers: [string, string][];
+  body: string;
+  truncated: boolean;
+  binary: boolean;
+  elapsed_ms: number;
+};
+
+// -- experiences: what can be done with a repository --------------------------
+
+export type ExperienceState = "detected" | "supported" | "runnable" | "running";
+export type Reality = "real_repository" | "official_runtime" | "mini_lab";
+
+export type RuntimeOption = {
+  strategy: string;
+  reality: Reality;
+  label: string;
+  ready: boolean;
+  estimate: string;
+  disclosure: string | null;
+  evidence: CodeReference[];
+};
+
+export type StarterAction = {
+  id: string;
+  title: string;
+  description: string;
+  code: string | null;
+  source: "readme" | "examples" | "routes" | "repolab";
+  evidence: CodeReference[];
+};
+
+export type ExperienceDefinition = {
+  id: string;
+  title: string;
+  experience_type: string;
+  adapter: string;
+  summary: string;
+  what_you_do: string;
+  what_you_learn: string;
+  what_to_notice: string;
+  surfaces: string[];
+  state: ExperienceState;
+  why_not: string | null;
+  options: RuntimeOption[];
+  starter_actions: StarterAction[];
+  evidence: CodeReference[];
+  route: string | null;
+  rank: number;
+  rank_signals: Record<string, number>;
+  primary: boolean;
+  session_id: string | null;
+};
+
+export type ExperienceListing = {
+  repo_url: string;
+  name: string;
+  headline: string;
+  experiences: ExperienceDefinition[];
+  also: ExperienceDefinition[];
+  fallback: ExperienceDefinition | null;
+  nothing_runs_because: string[];
+  supported_kinds: string[];
+};
+
+export type SnippetRunResultView = {
+  run_id: string;
+  ok: boolean;
+  spark_version: string | null;
+  columns: string[];
+  rows: unknown[][];
+  value: unknown;
+  error: string | null;
+  plan: string | null;
+  measurements: {
+    stage_count: number;
+    task_count: number;
+    total_runtime_ms: number | null;
+    shuffle_bytes_read: number;
+    shuffle_bytes_written: number;
+    distribution: { partitions: number; empty_partitions: number };
+    tasks: { slowest_ms: number; median_ms: number };
+  } | null;
+  jobs: number;
+  event_log_sha256: string | null;
+  dataset_sha256: string;
+  wall_clock_seconds: number;
+  stdout_tail: string;
+  config: { shuffle_partitions: number };
+};
+
+export type LibraryRunResultView = {
+  ok: boolean;
+  exit_code: number;
+  stdout: string;
+  stderr: string;
+  truncated: boolean;
+  wall_clock_seconds: number;
+};
+
+export type MappedStep = {
+  title: string;
+  run_evidence: string;
+  architecture_id: string | null;
+  architecture_label: string | null;
+  subsystem_id: string | null;
+  source_paths: string[];
+};
+
+export type ExperienceRun = {
+  id: string;
+  status: "running" | "done" | "failed";
+  code: string;
+  action_id: string | null;
+  shuffle_partitions: number | null;
+  result: (SnippetRunResultView & LibraryRunResultView) | null;
+  mapping: MappedStep[];
+  explanation: VerifiedAnswer | null;
+  explanation_error: string | null;
+  events_job_id: string | null;
+};
+
+export type ExperienceSessionView = {
+  id: string;
+  job_id: string;
+  experience_id: string;
+  adapter: string;
+  strategy: string;
+  reality: Reality;
+  status: "preparing" | "ready" | "failed" | "stopped";
+  events_url: string | null;
+  state: {
+    runtime: { image: string | null; version: string | null; disclosure: string | null; label: string };
+    steps: { name: string; status: string; detail: string }[];
+    failure: string | null;
+    failure_log: string;
+    runs: ExperienceRun[];
+    dataset: { name: string; rows: number; columns: [string, string][]; preview: string[][]; sha256: string; generated_by: string } | null;
+    minilab: { entries: { command: string; summary: string }[] } | null;
+    transcript: { command: string; label: string; output?: string; explanation?: string; source_files?: string[] }[];
+  };
+  experience: ExperienceDefinition | null;
 };

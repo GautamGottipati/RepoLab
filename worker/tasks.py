@@ -16,16 +16,21 @@ import structlog
 from sqlalchemy.orm import Session, sessionmaker
 
 from repolab.agents import AgentStatus, RepositoryInvestigatorAgent
+from repolab.agents.models import AgentRun
 from repolab.analytics import Analytics, AnalyticsEventType, DbAnalyticsWriter
+from repolab.architecture import build_architecture
 from repolab.classify import classify
 from repolab.config import Settings, get_settings
 from repolab.db import build_engine, build_session_factory, save_ingestion, session_scope
 from repolab.db.jobs import get_job, mark_finished, mark_running, save_agent_run
 from repolab.events import ActivityReporter, DbEventEmitter, EventType, JobStatus
+from repolab.evidence.models import DocumentationReference
+from repolab.experiences.facts import gather_facts
 from repolab.failures import describe, explain
 from repolab.ingest.clone import TemporaryClone
 from repolab.ingest.content import ReadBudget
 from repolab.ingest.detectors.base import DetectionContext
+from repolab.ingest.enrich import EnrichmentResult
 from repolab.ingest.languages import detect_languages
 from repolab.ingest.limits import DEFAULT_LIMITS, IngestLimits, LimitReport
 from repolab.ingest.pipeline import IngestionResult
@@ -33,8 +38,9 @@ from repolab.ingest.tree import build_file_tree
 from repolab.ingest.url import validate_repo_url
 from repolab.interfaces import ResearchProvider
 from repolab.llm import ModelRouter
-from repolab.manifest.builder import build_architecture, build_evidence, build_manifest
+from repolab.manifest.builder import build_evidence, build_manifest
 from repolab.manifest.models import RepoManifest, SurfaceType
+from repolab.runtime.plan import plan_runtime
 from repolab.sandbox.docker import docker_available, ensure_image
 
 log = structlog.get_logger(__name__)
@@ -201,12 +207,43 @@ async def _investigate(
             languages=languages,
             classification=classification,
         )
+        manifest.runtime = plan_runtime(context, manifest)
+        manifest.facts = gather_facts(context)
+        if manifest.runtime.services:
+            emitter.emit(
+                EventType.STEP_DONE,
+                "how it would run: "
+                + ", ".join(
+                    f"{s.name} ({s.image}, port {s.port})" for s in manifest.runtime.services
+                ),
+                step="manifest",
+            )
+        emitter.emit(
+            EventType.STEP_STARTED, "understanding what this repository is", step="architecture"
+        )
+        architecture = await build_architecture(
+            context, outcome, manifest, router=router, docs=retrieved_docs(investigation.run)
+        )
+        emitter.emit(
+            EventType.STEP_DONE,
+            f"architecture: {len(architecture.subsystems)} major parts, "
+            f"{len(architecture.system_model.concepts)} concepts, "
+            f"{len(architecture.nodes)} components, {architecture.completeness.value}",
+            step="architecture",
+            data={
+                "components": len(architecture.nodes),
+                "generated_by": architecture.generated_by.value,
+                "completeness": architecture.completeness.value,
+                "dropped": architecture.dropped,
+            },
+        )
         result = IngestionResult(
             repo_url=repo_url,
             commit_sha=clone.commit_sha,
             branch=clone.branch,
             manifest=manifest,
-            architecture=build_architecture(outcome),
+            architecture=architecture,
+            enrichment=EnrichmentResult(architecture_summary=architecture.summary),
             evidence=build_evidence(outcome),
             classification=classification,
             languages=languages,
@@ -291,6 +328,24 @@ def prepare_environment(
         },
     )
     return status.ready
+
+
+def retrieved_docs(run: AgentRun) -> list[DocumentationReference]:
+    """Official documentation the investigation actually retrieved, for citation."""
+    found: dict[str, DocumentationReference] = {}
+    for step in run.steps:
+        if step.request is None or step.request.tool != "search_official_docs" or not step.ok:
+            continue
+        for hit in step.result.data.get("results", []) if step.result else []:
+            url = hit.get("url") if isinstance(hit, dict) else None
+            if isinstance(url, str) and url.startswith(("http://", "https://")):
+                found.setdefault(
+                    url,
+                    DocumentationReference(
+                        url=url, title=hit.get("title"), excerpt=hit.get("excerpt")
+                    ),
+                )
+    return list(found.values())
 
 
 def _providers(

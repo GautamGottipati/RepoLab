@@ -136,8 +136,14 @@ class TestArchitecture:
         assert body["node_count"] == 2
         assert body["edge_count"] == 1
         assert body["generated_by"] == "deterministic"
-        assert {node["name"] for node in body["graph"]["nodes"]} == {"etl_job", "Spark"}
-        assert body["graph"]["edges"][0]["kind"] == "depends_on"
+        # Stored by the earlier builder; served in the current schema.
+        assert {node["label"] for node in body["graph"]["nodes"]} == {"etl_job", "Spark"}
+        edge = body["graph"]["edges"][0]
+        assert edge["type"] == "depends_on"
+        # The old builder joined everything to everything, so its edges were
+        # never detected: they come back as inferred, and the graph as partial.
+        assert edge["provenance"] == "inferred"
+        assert body["graph"]["completeness"] == "partial"
 
     def test_every_component_cites_a_file(
         self, client: TestClient, db: sessionmaker[Session]
@@ -147,7 +153,7 @@ class TestArchitecture:
         body = client.get(f"/jobs/{job_id}/architecture").json()
 
         for node in body["graph"]["nodes"]:
-            assert node["file_references"], f"{node['name']} cites nothing"
+            assert node["source_references"], f"{node['label']} cites nothing"
 
     def test_a_missing_record_is_404_rather_than_an_empty_graph(
         self, client: TestClient, db: sessionmaker[Session]
@@ -328,3 +334,111 @@ class TestDatasetPreview:
 
     def test_an_unbounded_preview_is_refused(self, client: TestClient) -> None:
         assert client.get("/runs/dataset", params={"rows": 10_000_000}).status_code == 422
+
+
+def ingested_v2_job(factory: sessionmaker[Session], tmp_path) -> str:
+    """A job whose architecture was built by the current analysis, from a Spark fixture."""
+    import asyncio
+
+    from repolab.db.models import RepoManifestRecord
+    from tests.support import architecture_fixtures as fx
+
+    graph, manifest, _ = asyncio.run(
+        fx.analyse(fx.write_repo(tmp_path, fx.SPARK_PIPELINE), repo_url=REPO)
+    )
+    with factory() as session:
+        job = create_job(session, REPO)
+        repository = Repository(url=REPO, host="github.com", owner="a", name="b")
+        session.add(repository)
+        session.flush()
+        ingestion = Ingestion(repository_id=repository.id, commit_sha=fx.SHA)
+        session.add(ingestion)
+        session.flush()
+        session.add(
+            ArchitectureRecord(
+                ingestion_id=ingestion.id,
+                generated_by=graph.generated_by.value,
+                node_count=len(graph.nodes),
+                edge_count=len(graph.edges),
+                graph=graph.model_dump(mode="json"),
+            )
+        )
+        session.add(
+            RepoManifestRecord(
+                ingestion_id=ingestion.id,
+                manifest=manifest.model_dump(mode="json"),
+                confidence=manifest.confidence,
+            )
+        )
+        job.ingestion_id = ingestion.id
+        job.status = JobStatus.COMPLETED.value
+        session.commit()
+        return job.id
+
+
+class TestGenericArchitecture:
+    def test_actions_say_what_can_be_asked_and_tested(
+        self, client: TestClient, db: sessionmaker[Session], tmp_path
+    ) -> None:
+        job_id = ingested_v2_job(db, tmp_path)
+        body = client.get(f"/jobs/{job_id}/architecture").json()
+
+        nodes = {n["id"]: n for n in body["graph"]["nodes"]}
+        assert body["commit_sha"] == "f" * 40
+        assert set(body["node_actions"]) == set(nodes)
+        offered = {
+            nodes[i]["category"]
+            for i, a in body["node_actions"].items()
+            if a["experiment"]["available"]
+        }
+        assert "pipeline" in offered
+        assert "entry_point" not in offered
+        assert all(a["ask"] for a in body["node_actions"].values())
+
+    def test_concepts_and_subsystems_have_actions_too(
+        self, client: TestClient, db: sessionmaker[Session], tmp_path
+    ) -> None:
+        job_id = ingested_v2_job(db, tmp_path)
+        body = client.get(f"/jobs/{job_id}/architecture").json()
+        graph = body["graph"]
+        assert graph["schema_version"] == 3
+        assert graph["understanding"]["name"]
+        ids = {c["id"] for c in graph["system_model"]["concepts"]}
+        ids |= {s["id"] for s in graph["subsystems"]}
+        assert ids and set(body["concept_actions"]) == ids
+        assert all(a["suggested_questions"] for a in body["concept_actions"].values())
+
+    def test_the_runtime_overlay_is_empty_until_something_ran(
+        self, client: TestClient, db: sessionmaker[Session], tmp_path
+    ) -> None:
+        job_id = ingested_v2_job(db, tmp_path)
+        overlay = client.get(f"/jobs/{job_id}/architecture/runtime").json()
+        assert overlay["measurements"] == {}
+        assert overlay["runs"] == []
+
+    def test_a_real_run_is_overlaid_as_measured(
+        self, client: TestClient, db: sessionmaker[Session], tmp_path
+    ) -> None:
+        job_id = ingested_v2_job(db, tmp_path)
+        with db() as session:
+            session.add(
+                SparkRun(
+                    run_id="run-xyz-123",
+                    repo_url=REPO,
+                    commit_sha="f" * 40,
+                    dataset_hash="d" * 64,
+                    measurements={"total_runtime_ms": 6011, "task_count": 404, "stage_count": 6},
+                    event_log_path="/tmp/x",
+                    event_log_sha256="e" * 64,
+                )
+            )
+            session.commit()
+
+        overlay = client.get(f"/jobs/{job_id}/architecture/runtime").json()
+        values = [m for ms in overlay["measurements"].values() for m in ms]
+        assert {m["name"] for m in values} >= {"total runtime", "tasks"}
+        assert all(m["provenance"] == "measured" and "run-xyz" in m["source"] for m in values)
+        rolled = [m for ms in overlay["by_group"].values() for m in ms]
+        assert rolled and {(m["value"], m["source"]) for m in rolled} <= {
+            (m["value"], m["source"]) for m in values
+        }

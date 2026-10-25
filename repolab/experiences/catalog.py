@@ -26,7 +26,7 @@ from enum import StrEnum
 
 from pydantic import BaseModel, Field, computed_field
 
-from repolab.classify.signals import HYBRID_CONFIDENCE
+from repolab.classify.signals import HYBRID_CONFIDENCE, STRONG_CONFIDENCE
 from repolab.evidence.models import CodeReference
 from repolab.manifest.models import InteractionSurface, RepoManifest, SurfaceType
 
@@ -56,6 +56,51 @@ SURFACE_LABELS: dict[SurfaceType, str] = {
     SurfaceType.TERMINAL: "Terminal",
 }
 
+#: What each surface means to someone new to the repository.
+SURFACE_MEANING: dict[SurfaceType, str] = {
+    SurfaceType.WEB: "A user interface that runs in the browser.",
+    SurfaceType.API: "An HTTP service that other programs, or a frontend, send requests to.",
+    SurfaceType.CLI: "Commands you run in a terminal.",
+    SurfaceType.NOTEBOOK: "A library you use by writing code against it.",
+    SurfaceType.DATA_PLAYGROUND: "A data job you run and measure.",
+    SurfaceType.TERMINAL: "A shell inside the repository's environment.",
+}
+
+#: Detector signal kinds, as a reader would say them. Unknown kinds fall back to
+#: the kind itself, so a new detector never makes a reason disappear.
+SIGNAL_PHRASES: dict[str, str] = {
+    "express_app": "creates an Express app",
+    "fastapi_app": "creates a FastAPI app",
+    "flask_app": "creates a Flask app",
+    "django_urls": "declares Django URL routes",
+    "route_decorator": "declares HTTP route handlers",
+    "uvicorn_run": "starts an ASGI server",
+    "frontend_app": "bootstraps a browser application",
+    "port": "configures a network port",
+    "exposed_ports": "exposes ports in a container",
+    "spark_session": "builds a SparkSession",
+    "spark_context": "creates a SparkContext",
+    "spark_import": "imports PySpark",
+    "spark_scala_import": "imports Spark (Scala)",
+    "spark_submit": "submits Spark jobs",
+    "spark_config": "sets Spark configuration",
+    "click_command": "defines Click commands",
+    "typer_app": "defines a Typer CLI",
+    "argparse": "parses command-line arguments",
+    "bin_executable": "ships executables in bin/",
+    "shell_script": "includes shell scripts",
+    "sys_argv": "reads command-line arguments",
+    "interactive_shell": "has an interactive shell",
+    "server_daemon": "runs a long-lived server process",
+    "notebook_file": "includes notebooks",
+    "library_package": "is packaged as an importable library",
+    "web_server": "a script starts a server",
+    "cli_script": "declares command-line entry points",
+    "services": "defines services to run alongside it",
+    "server+shell": "a shell talks to a running server",
+    "library-without-executable": "has nothing to run on its own",
+}
+
 #: The experience adapter for a surface, where one exists.
 #:
 #: Two entries, because two adapters exist. A surface absent from this table has
@@ -64,7 +109,13 @@ SURFACE_LABELS: dict[SurfaceType, str] = {
 ADAPTERS: dict[SurfaceType, str] = {
     SurfaceType.DATA_PLAYGROUND: "SparkDataExperience",
     SurfaceType.CLI: "CLIExperience",
+    SurfaceType.WEB: "LiveAppExperience",
+    SurfaceType.API: "LiveAppExperience",
 }
+
+#: Adapters that run the repository's own services from a :class:`RuntimePlan`,
+#: rather than through the build ladder.
+LIVE_ADAPTERS = frozenset({"LiveAppExperience"})
 
 #: Where a runnable experience opens, relative to the workspace.
 ROUTES: dict[SurfaceType, str] = {
@@ -77,6 +128,10 @@ NO_LADDER = "RepoLab has no build strategy for this repository yet"
 NO_LESSON = "RepoLab has no lesson for this repository's command line yet"
 NO_ADAPTER = "RepoLab has no experience for this kind of surface yet"
 NOT_PRIMARY = "This is not the surface RepoLab would build for this repository"
+NO_RUNTIME_PLAN = (
+    "this investigation predates runtime planning; investigate the repository again so "
+    "RepoLab can work out how to run it"
+)
 
 
 class ExperienceStatus(StrEnum):
@@ -117,6 +172,12 @@ class AvailableExperience(BaseModel):
     unavailable_reason: str = ""
     """The specification's sentence, plus the specific reason. Empty when runnable."""
 
+    meaning: str = ""
+    """What this kind of surface is, in plain words."""
+
+    signals: list[str] = Field(default_factory=list)
+    """Why it was detected, as readable phrases ("creates an Express app")."""
+
     @computed_field
     @property
     def runnable(self) -> bool:
@@ -132,6 +193,14 @@ class AvailableExperience(BaseModel):
         `__init__.py` packaging, not that RepoLab decided for them.
         """
         return self.confidence < HYBRID_CONFIDENCE
+
+    @computed_field
+    @property
+    def strength(self) -> str:
+        """The confidence in words: ``strong``, ``moderate`` or ``weak`` evidence."""
+        if self.confidence >= STRONG_CONFIDENCE:
+            return "strong"
+        return "weak" if self.weak else "moderate"
 
     @computed_field
     @property
@@ -214,7 +283,27 @@ def _describe(surface: InteractionSurface, manifest: RepoManifest) -> AvailableE
         route=None if blocked else ROUTES.get(surface.type),
         adapter=adapter,
         unavailable_reason=f"{NOT_RUNNABLE} {blocked}." if blocked else "",
+        meaning=SURFACE_MEANING.get(surface.type, ""),
+        signals=readable_signals(surface.reason),
     )
+
+
+def readable_signals(reason: str) -> list[str]:
+    """The classifier's reason (``detected from a, b; corroborated by c``) as phrases."""
+    detected, _, corroborated = reason.partition("; corroborated by ")
+    detected = detected.removeprefix("detected from ")
+    phrases: list[str] = []
+    for kind in [*detected.split(","), *corroborated.split(",")]:
+        kind = kind.strip()
+        if not kind or kind == "no direct signal":
+            continue
+        if kind.startswith("framework:"):
+            phrase = f"depends on {kind.split(':', 1)[1]}"
+        else:
+            phrase = SIGNAL_PHRASES.get(kind, kind.replace("_", " "))
+        if phrase not in phrases:
+            phrases.append(phrase)
+    return phrases
 
 
 def _why_not(
@@ -228,6 +317,16 @@ def _why_not(
     """
     if adapter is None:
         return NO_ADAPTER
+
+    if adapter in LIVE_ADAPTERS:
+        # Runnable means a plan exists for this surface -- built from the
+        # repository's own scripts and ports -- not that anything has run.
+        plan = manifest.runtime
+        if plan is None:
+            return NO_RUNTIME_PLAN
+        if not plan.for_surface(surface.type):
+            return plan.unplanned.get(surface.type.value, "RepoLab found no way to start it")
+        return None
 
     if not _has_ladder(manifest):
         return NO_LADDER

@@ -8,8 +8,9 @@ from __future__ import annotations
 
 import pytest
 
+from repolab.architecture.models import NodeCategory
 from repolab.ingest import ingest_clone
-from repolab.manifest.architecture import GraphSource, NodeKind
+from repolab.manifest.architecture import GraphSource
 from repolab.manifest.models import (
     BuildKind,
     ClassificationSource,
@@ -117,27 +118,25 @@ class TestBuildStrategyInference:
 
 
 class TestArchitectureGraph:
+    """The architecture an ingestion produces. Its depth is in test_architecture_*."""
+
     async def test_every_node_cites_at_least_one_file(self, spark_result) -> None:
         """An architecture claim without a file reference is not evidence."""
         result, _ = spark_result
         assert result.architecture.nodes
-        assert result.architecture.unsupported_nodes == []
+        assert all(node.is_supported for node in result.architecture.nodes)
 
     async def test_node_references_point_at_real_files(self, spark_result) -> None:
         result, root = spark_result
         for node in result.architecture.nodes:
-            for ref in node.file_references:
+            for ref in node.source_references:
                 assert (root / ref.path).exists(), f"{node.id} cites missing {ref.path}"
 
-    async def test_entrypoints_become_nodes(self, spark_result) -> None:
+    async def test_a_spark_job_becomes_a_pipeline(self, spark_result) -> None:
         result, _ = spark_result
-        kinds = {node.kind for node in result.architecture.nodes}
-        assert NodeKind.ENTRYPOINT in kinds
-
-    async def test_config_and_framework_nodes_exist(self, spark_result) -> None:
-        result, _ = spark_result
-        kinds = {node.kind for node in result.architecture.nodes}
-        assert {NodeKind.CONFIG, NodeKind.EXTERNAL} <= kinds
+        categories = {node.category for node in result.architecture.nodes}
+        assert NodeCategory.PIPELINE in categories
+        assert NodeCategory.ENTRY_POINT in categories
 
     async def test_edges_connect_known_nodes_only(self, spark_result) -> None:
         result, _ = spark_result
@@ -150,16 +149,16 @@ class TestArchitectureGraph:
         result, _ = spark_result
         assert result.architecture.generated_by is GraphSource.DETERMINISTIC
 
-    async def test_services_become_datastore_nodes(
+    async def test_declared_services_become_infrastructure(
         self, make_repo, local_clone, fake_repo_url
     ) -> None:
         root, sha = make_repo(WEB_REPO)
         result = await ingest_clone(fake_repo_url, local_clone(root, sha))
-        datastores = [n for n in result.architecture.nodes if n.kind is NodeKind.DATASTORE]
-        assert {n.name for n in datastores} >= {"PostgreSQL", "Redis"}
+        labels = {n.label for n in result.architecture.nodes}
+        assert {"PostgreSQL", "Redis"} <= labels
 
     async def test_the_graph_round_trips(self, spark_result) -> None:
-        from repolab.manifest.architecture import ArchitectureGraph
+        from repolab.architecture import ArchitectureGraph
 
         result, _ = spark_result
         restored = ArchitectureGraph.model_validate_json(result.architecture.model_dump_json())

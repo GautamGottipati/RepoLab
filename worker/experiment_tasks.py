@@ -37,15 +37,21 @@ from repolab.db.experiments import (
     get_experiment,
     load_cli_experiment,
     load_experiment,
+    question_context,
     save_answer,
     save_cli_experiment,
     save_experiment,
     save_triage,
 )
 from repolab.db.jobs import get_job, mark_finished, mark_running
-from repolab.db.store import load_latest_ingestion, load_manifest
+from repolab.db.store import (
+    load_architecture,
+    load_latest_ingestion,
+    load_manifest,
+    load_runtime_overlay,
+)
 from repolab.events import DbEventEmitter, EventType, JobStatus
-from repolab.experiences.spark.driver import SparkRunConfig
+from repolab.experiences.spark.driver import DEFAULT_SHUFFLE_PARTITIONS, SparkRunConfig
 from repolab.experiments import ExperimentAgent, ExperimentBudget
 from repolab.experiments.cli.agent import CliExperimentAgent
 from repolab.experiments.cli.models import CliExperiment
@@ -199,10 +205,21 @@ async def _propose(
         manifest = load_manifest(session, url.normalized)
         ingestion = load_latest_ingestion(session, url.normalized)
         artifacts = load_builds(session, url.normalized, ingestion.commit_sha) if ingestion else []
+        # What the investigation mapped, and what real runs measured: the answer
+        # starts from both instead of rediscovering them.
+        architecture = load_architecture(session, url.normalized)
+        overlay = (
+            load_runtime_overlay(session, url.normalized, architecture) if architecture else None
+        )
+
+    with context.factory() as session:
+        focus = question_context(session, experiment_id)
+        target = _experience_target(session, experiment_id)
 
     context.emitter.emit(EventType.STEP_STARTED, "understanding the question", step="triage")
     decision = await triage(
         question,
+        spark_session=target.session_id if target else None,
         manifest=manifest,
         artifacts=artifacts,
         router=router,
@@ -241,9 +258,15 @@ async def _propose(
                 router=router,
                 research=research,
                 emitter=context.emitter,
+                focus=focus,
+                architecture=architecture,
+                overlay=overlay,
             )
             result = await agent.answer(
-                question, kind=decision.kind, downgraded=decision.downgraded
+                question,
+                kind=decision.kind,
+                downgraded=decision.downgraded,
+                shape=decision.shape,
             )
             with context.factory() as session:
                 save_answer(session, experiment_id, result, commit_sha=clone.commit_sha)
@@ -271,16 +294,18 @@ async def _propose(
                 router=router,
                 research=research,
                 emitter=context.emitter,
+                focus=focus,
             )
             experiment = await cli_agent.propose(
                 question, job_id=context.job_id, experiment_id=experiment_id
             )
         else:
+            on_session = target is not None and decision.experience_session is not None
             agent_spark = ExperimentAgent(
                 repo_url=url.normalized,
                 commit_sha=clone.commit_sha,
                 repository_root=Path(clone.path),
-                image=DEFAULT_IMAGE,
+                image=target.image if on_session else DEFAULT_IMAGE,
                 router=router,
                 research=research,
                 emitter=context.emitter,
@@ -289,6 +314,8 @@ async def _propose(
                 concurrency=concurrency,
                 rows=rows,
                 host_cpus=os.cpu_count(),
+                baseline_value=target.baseline if on_session else DEFAULT_SHUFFLE_PARTITIONS,
+                runner=target.runner(url.normalized, clone.commit_sha) if on_session else None,
             )
             experiment = await agent_spark.propose(
                 question, job_id=context.job_id, experiment_id=experiment_id
@@ -313,6 +340,56 @@ def _triage_message(decision: Triage) -> str:
     if decision.downgraded:
         return f"{message} -- answering from evidence. {decision.downgraded}"
     return f"{message} -- answering from the repository and its documentation"
+
+
+class _ExperienceTarget:
+    """An experience session an experiment runs on: its image and its code."""
+
+    def __init__(self, session_id: str, image: str, spark_submit: str, code: str, baseline: int):
+        self.session_id = session_id
+        self.image = image
+        self.spark_submit = spark_submit
+        self.code = code
+        self.baseline = baseline
+
+    def runner(self, repo_url: str, commit_sha: str) -> object:
+        from repolab.experiences.spark.variants import SnippetVariantRunner
+
+        return SnippetVariantRunner(
+            repo_url=repo_url,
+            commit_sha=commit_sha,
+            image=self.image,
+            spark_submit=self.spark_submit,
+            code=self.code,
+        )
+
+
+def _experience_target(session: object, experiment_id: str) -> _ExperienceTarget | None:
+    """The ready Spark session the question was asked from, with its last good run."""
+    from repolab.db.models import ExperimentRecord
+    from repolab.experiences import sessions as store
+
+    record = session.get(ExperimentRecord, experiment_id)  # type: ignore[attr-defined]
+    session_id = (record.triage or {}).get("experience_session") if record else None
+    if not session_id:
+        return None
+    loaded = store.load_session(session, session_id)  # type: ignore[arg-type]
+    if loaded is None:
+        return None
+    found, state = loaded
+    if found.adapter != "spark" or found.status != store.READY or not state.runtime.image:
+        return None
+    done = [r for r in state.runs if r.status == "done"]
+    if not done:
+        return None
+    last = done[-1]
+    return _ExperienceTarget(
+        session_id=session_id,
+        image=state.runtime.image,
+        spark_submit=state.runtime.spark_submit or "/opt/spark/bin/spark-submit",
+        code=last.code,
+        baseline=last.shuffle_partitions or 4,
+    )
 
 
 def _grounded(result: object) -> bool | None:
@@ -359,6 +436,45 @@ async def _run(
         },
     )
     context.analytics.record(AnalyticsEventType.EXPERIMENT_APPROVED, experiment_id=experiment.id)
+
+    with context.factory() as session:
+        target = _experience_target(session, experiment_id)
+    if target is not None:
+        # The learner's own code on their session's runtime: no repository code
+        # runs, so the default branch moving since approval changes nothing here.
+        import tempfile
+
+        with tempfile.TemporaryDirectory() as empty:
+            agent = ExperimentAgent(
+                repo_url=experiment.repo_url,
+                commit_sha=experiment.commit_sha,
+                repository_root=Path(empty),
+                image=target.image,
+                router=router,
+                research=research,
+                emitter=context.emitter,
+                base_config=SparkRunConfig(),
+                baseline_value=plan.baseline_value,
+                concurrency=plan.concurrency,
+                rows=rows,
+                host_cpus=os.cpu_count(),
+                runner=target.runner(experiment.repo_url, experiment.commit_sha),
+            )
+            context.analytics.record(
+                AnalyticsEventType.EXPERIMENT_STARTED, experiment_id=experiment.id
+            )
+
+            async def persist_session(_run: object) -> None:
+                context.save(experiment)
+
+            experiment = await agent.execute(experiment, on_run=persist_session)
+        context.save(experiment)
+        context.analytics.record(
+            AnalyticsEventType.EXPERIMENT_COMPLETED,
+            experiment_id=experiment.id,
+            runs=experiment.run_count,
+        )
+        return experiment
 
     with TemporaryClone(url, limits=DEFAULT_LIMITS) as clone:
         if clone.commit_sha != experiment.commit_sha:

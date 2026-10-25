@@ -18,6 +18,8 @@ from typing import Annotated
 from pydantic import BaseModel, Field, model_validator
 
 from repolab.evidence.models import CodeReference
+from repolab.experiences.facts import RepositoryFacts
+from repolab.runtime.models import RuntimePlan
 
 #: A confidence score. An annotated alias rather than a shared ``Field``
 #: instance, which pydantic models must not share.
@@ -43,6 +45,9 @@ class EntryPointKind(StrEnum):
     WEB_SERVER = "web_server"
     SPARK_JOB = "spark_job"
     TEST_SUITE = "test_suite"
+    TOOLING = "tooling"
+    """A project task -- build, lint, format. How the project is developed, not a
+    way to use it, so it supports no interaction surface."""
 
 
 class BuildKind(StrEnum):
@@ -231,6 +236,14 @@ class RepoManifest(BaseModel):
     concepts: list[Concept] = Field(default_factory=list)
 
     confidence: Confidence
+
+    runtime: RuntimePlan | None = None
+    """How the web and API surfaces would be run, from repository evidence.
+    ``None`` for manifests recorded before runtime planning existed."""
+
+    facts: RepositoryFacts | None = None
+    """What the tree says about how the software is used (a shipped Spark runtime,
+    a Python package and its README examples), for experience discovery."""
 
     @model_validator(mode="after")
     def _at_most_one_primary_surface(self) -> RepoManifest:

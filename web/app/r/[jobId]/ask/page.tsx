@@ -2,9 +2,13 @@
  * Ask RepoLab — the question, then an answer or an experiment.
  *
  * A question is triaged first. A conceptual one, or one about the code, is
- * answered from the repository and its official docs. A testable one becomes an
- * experiment on whatever this repository really is — its Spark job, or CQL on
- * its built node — and nothing runs until it is approved.
+ * answered from the repository and its official docs, laid out to teach: the
+ * direct answer, a small picture, how it works, then the sources. A testable
+ * one becomes an experiment on whatever this repository really is — its Spark
+ * job, or CQL on its built node — and nothing runs until it is approved.
+ *
+ * The right-hand column carries the repository context of the question and
+ * the history; the agent's raw activity stays one click away.
  *
  * Spec: docs/design/05-ask.md
  */
@@ -12,16 +16,21 @@
 "use client";
 
 import Link from "next/link";
-import { useRouter } from "next/navigation";
-import { useCallback, useEffect, useState } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
+import { useCallback, useEffect, useMemo, useState } from "react";
+import { createPortal } from "react-dom";
 
 import { ActivityFeed } from "@/components/activity";
-import { AnswerCard, TriageNote } from "@/components/answer-card";
+import { TriageNote } from "@/components/answer-card";
+import { AnswerView } from "@/components/answer-view";
+import { AskContext, QuestionBox, QuestionHistory } from "@/components/ask-context";
 import { ApprovalCard, CliApprovalCard } from "@/components/approval-card";
-import { Badge, Empty, ErrorNote, Note, Panel, Skeleton } from "@/components/ui";
+import { ErrorNote, Note, Panel, Skeleton } from "@/components/ui";
 import { api, ApiError, optional } from "@/lib/api";
+import { suggestionsFor } from "@/lib/ask";
+import { focusFor } from "@/lib/architecture";
 import { useEventStream } from "@/lib/events";
-import type { ExperimentState } from "@/lib/types";
+import type { ExperimentState, JobEvent } from "@/lib/types";
 
 import { useWorkspace } from "../workspace";
 
@@ -34,7 +43,20 @@ const EXPERIMENT_ROWS = 40_000;
 
 export default function AskPage() {
   const router = useRouter();
-  const { jobId, job, experiences } = useWorkspace();
+  const { jobId, job, experiences, architecture, asideSlot } = useWorkspace();
+  const searchParams = useSearchParams();
+  const fromArchitecture = searchParams.get("q");
+  const nodeId = searchParams.get("node");
+  // Asked from an experience: an experiment runs the learner's own code there.
+  const experienceSession = searchParams.get("experience");
+  const [focusDismissed, setFocusDismissed] = useState(false);
+
+  // Asked from a component on the Architecture page: the component's files and
+  // relationships travel with the question, so the answer starts from them.
+  const focus = useMemo(
+    () => (nodeId && architecture && !focusDismissed ? focusFor(architecture.graph, nodeId) : null),
+    [nodeId, architecture, focusDismissed],
+  );
   const repoUrl = job?.repo_url;
   const sparkDemo = experiences?.runnable_surfaces.includes("data_playground") ?? false;
 
@@ -42,12 +64,15 @@ export default function AskPage() {
   // for every repository: on Cassandra it would be a question about nothing. Until
   // the learner types, the suggestion is derived rather than stored.
   const [draft, setQuestion] = useState<string | null>(null);
-  const question = draft ?? (sparkDemo ? DEMO_QUESTION : "");
+  const question = draft ?? fromArchitecture ?? (sparkDemo ? DEMO_QUESTION : "");
   const [experimentId, setExperimentId] = useState<string | null>(null);
   const [experiment, setExperiment] = useState<ExperimentState | null>(null);
   const [history, setHistory] = useState<ExperimentState[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [asking, setAsking] = useState(false);
+  const [showActivity, setShowActivity] = useState(false);
+  const focusId = focus ? nodeId : null;
+  const suggestions = useMemo(() => suggestionsFor(architecture, focusId), [architecture, focusId]);
 
   const { events } = useEventStream(
     experimentId ? api.experimentEventsUrl(experimentId) : null,
@@ -99,20 +124,31 @@ export default function AskPage() {
     return () => { cancelled = true; clearInterval(timer); };
   }, [experimentId, experiment?.status]);
 
-  const ask = useCallback(async () => {
+  /** Ask the question in the box, or *next* -- a suggestion or a follow-up. */
+  const ask = useCallback(async (next?: string) => {
     if (!repoUrl) return;
+    const asked = (next ?? question).trim();
+    if (asked.length < 8) return;
+    if (next !== undefined) setQuestion(next);
     setError(null);
     setExperiment(null);
+    setShowActivity(false);
     setAsking(true);
     try {
-      const created = await api.ask(repoUrl, question, EXPERIMENT_ROWS);
+      const created = await api.ask(
+        repoUrl,
+        asked,
+        EXPERIMENT_ROWS,
+        focus ?? undefined,
+        experienceSession ?? undefined,
+      );
       setExperimentId(created.experiment_id);
     } catch (cause) {
       setError(cause instanceof ApiError ? cause.message : String(cause));
     } finally {
       setAsking(false);
     }
-  }, [repoUrl, question]);
+  }, [repoUrl, question, focus, experienceSession]);
 
   const approve = useCallback(async () => {
     if (!experimentId) return;
@@ -140,45 +176,39 @@ export default function AskPage() {
 
   return (
     <div className="flex flex-col gap-6">
-      <Panel
-        title="Ask about this repository"
-        subtitle="Conceptual questions are answered from the repository and its docs; testable ones become an experiment on this repository"
-      >
-        <div className="flex flex-col gap-2">
-          <textarea
-            value={question}
-            onChange={(event) => setQuestion(event.target.value)}
-            rows={2}
-            aria-label="Question"
-            placeholder={
-              sparkDemo
-                ? DEMO_QUESTION
+      <Panel>
+        <QuestionBox
+          question={question}
+          onChange={setQuestion}
+          onAsk={(next) => void ask(next)}
+          busy={asking || designing}
+          disabled={asking || designing || question.trim().length < 8 || !repoUrl}
+          contextLabel={focus?.label ?? null}
+          onClearContext={() => setFocusDismissed(true)}
+          suggestions={experiment?.status === "answered" ? [] : suggestions}
+          placeholder={
+            sparkDemo
+              ? DEMO_QUESTION
+              : focus
+                ? `e.g. How does ${focus.label} work?`
                 : "e.g. What is this project? · Where is X implemented? · What happens if…?"
-            }
-            data-testid="question"
-            className="w-full resize-y rounded border border-neutral-300 px-3 py-2 text-sm outline-none focus:border-neutral-900 dark:border-neutral-700 dark:bg-neutral-900 dark:focus:border-neutral-300"
-          />
-          <div className="flex flex-wrap items-center gap-3">
+          }
+        >
+          {experienceSession && (
+            <span className="text-xs text-violet-700 dark:text-violet-300" data-testid="experience-target">
+              An experiment will run your code from the experience, on the same runtime.
+            </span>
+          )}
+          {sparkDemo && question !== DEMO_QUESTION && (
             <button
               type="button"
-              onClick={ask}
-              disabled={asking || designing || question.trim().length < 8 || !repoUrl}
-              data-testid="ask"
-              className="rounded bg-neutral-900 px-4 py-2 text-sm font-medium text-white disabled:opacity-50 dark:bg-neutral-100 dark:text-neutral-900"
+              onClick={() => setQuestion(DEMO_QUESTION)}
+              className="text-xs text-neutral-500 underline underline-offset-2"
             >
-              {asking || designing ? "Working…" : "Ask"}
+              Use the demo question
             </button>
-            {sparkDemo && question !== DEMO_QUESTION && (
-              <button
-                type="button"
-                onClick={() => setQuestion(DEMO_QUESTION)}
-                className="text-xs text-neutral-500 underline underline-offset-2"
-              >
-                Use the demo question
-              </button>
-            )}
-          </div>
-        </div>
+          )}
+        </QuestionBox>
       </Panel>
 
       {error && <ErrorNote>{error}</ErrorNote>}
@@ -200,9 +230,22 @@ export default function AskPage() {
             </div>
           )}
           <Skeleton rows={2} />
-          <div className="mt-3">
-            <ActivityFeed events={events} height="h-40" />
-          </div>
+          <p className="mt-3 text-xs text-neutral-500" data-testid="answer-status">
+            {latestStatus(events) ?? "Starting…"}
+          </p>
+          <button
+            type="button"
+            onClick={() => setShowActivity((v) => !v)}
+            aria-expanded={showActivity}
+            className="mt-1 text-xs underline underline-offset-2"
+          >
+            {showActivity ? "Hide what the agent is doing" : "Show what the agent is doing"}
+          </button>
+          {showActivity && (
+            <div className="mt-3">
+              <ActivityFeed events={events} height="h-40" />
+            </div>
+          )}
         </Panel>
       )}
 
@@ -231,8 +274,14 @@ export default function AskPage() {
       )}
 
       {experiment?.status === "answered" && experiment.answer && (
-        <Panel title="Answer" subtitle="From the repository and its official documentation; nothing was run">
-          <AnswerCard result={experiment.answer} triage={experiment.triage} />
+        <Panel>
+          <AnswerView
+            result={experiment.answer}
+            repoUrl={experiment.repo_url}
+            commitSha={experiment.commit_sha}
+            architecture={architecture?.graph ?? null}
+            onAsk={(next) => void ask(next)}
+          />
         </Panel>
       )}
 
@@ -262,38 +311,29 @@ export default function AskPage() {
           </Panel>
         )}
 
-      <Panel title="Previous questions" subtitle="For this repository">
-        {history.length === 0 ? (
-          <Empty title="None yet" />
-        ) : (
-          <ul className="flex flex-col gap-2" data-testid="experiment-history">
-            {history.map((entry) => (
-              <li key={entry.experiment_id} className="flex items-center gap-3">
-                <StatusBadge status={entry.status} />
-                <Link
-                  href={`/r/${jobId}/ask/${entry.experiment_id}`}
-                  className="min-w-0 flex-1 truncate text-sm underline-offset-2 hover:underline"
-                >
-                  {entry.question}
-                </Link>
-                <span className="shrink-0 font-mono text-xs text-neutral-400">
-                  {entry.variant_runs > 0 ? `${entry.variant_runs} runs` : ""}
-                </span>
-              </li>
-            ))}
-          </ul>
+      {asideSlot &&
+        createPortal(
+          <>
+            <AskContext
+              view={architecture}
+              focusId={focusId}
+              result={experiment?.status === "answered" ? experiment.answer : null}
+            />
+            <QuestionHistory jobId={jobId} history={history} />
+          </>,
+          asideSlot,
         )}
-      </Panel>
     </div>
   );
 }
 
-function StatusBadge({ status }: { status: ExperimentState["status"] }) {
-  if (status === "completed") return <Badge tone="good">completed</Badge>;
-  if (status === "running") return <Badge tone="live">running</Badge>;
-  if (status === "awaiting_approval") return <Badge tone="attention">needs approval</Badge>;
-  if (status === "failed") return <Badge tone="bad">refused</Badge>;
-  if (status === "rejected") return <Badge>declined</Badge>;
-  if (status === "answered") return <Badge tone="good">answered</Badge>;
-  return <Badge>{status}</Badge>;
+/** The agent's latest user-facing status line, while it works. */
+function latestStatus(events: JobEvent[]): string | null {
+  for (let i = events.length - 1; i >= 0; i--) {
+    const event = events[i];
+    if ((event.type === "agent_status" || event.type === "step_started" || event.type === "tool_started") && event.message) {
+      return event.message;
+    }
+  }
+  return null;
 }

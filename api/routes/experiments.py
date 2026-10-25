@@ -45,6 +45,7 @@ from repolab.db.models import ExperimentRecord
 from repolab.events import EventType, JobStatus
 from repolab.experiments.models import ExperimentStatus
 from repolab.ingest.url import InvalidRepoUrlError, validate_repo_url
+from repolab.questions.models import ArchitectureFocus
 
 log = structlog.get_logger(__name__)
 
@@ -69,6 +70,14 @@ class AskQuestion(BaseModel):
         description="Variants to run at once. Above 1, every timing is marked contended.",
     )
     rows: int | None = Field(default=None, gt=0, description="Dataset rows, for a quicker run")
+    context: ArchitectureFocus | None = Field(
+        default=None, description="The architecture component this question is about"
+    )
+    experience_session_id: str | None = Field(
+        default=None,
+        max_length=32,
+        description="Experiment on the learner's own code in this experience session",
+    )
 
 
 class ExperimentCreated(BaseModel):
@@ -183,6 +192,16 @@ def ask(
             repo_url=repo_url.normalized,
             status=ExperimentStatus.PROPOSED.value,
             kind=KIND_PENDING,
+            # Kept until triage, which carries it forward.
+            triage={
+                **({"context": payload.context.model_dump(mode="json")} if payload.context else {}),
+                **(
+                    {"experience_session": payload.experience_session_id}
+                    if payload.experience_session_id
+                    else {}
+                ),
+            }
+            or None,
         )
     )
     session.commit()

@@ -16,7 +16,12 @@ from repolab.llm import LLMError
 from repolab.manifest.models import BuildKind
 from repolab.questions import ExperimentBackend, QuestionKind, Route, triage
 from repolab.questions.models import TriageVerdict
-from repolab.questions.triage import cli_artifact, rule_kind, spark_backend_available
+from repolab.questions.triage import (
+    cli_artifact,
+    explanation_shape,
+    rule_kind,
+    spark_backend_available,
+)
 from tests.support.builds import CASSANDRA_REPO, SHA, cassandra_manifest
 from tests.support.manifests import spark_manifest
 
@@ -211,3 +216,34 @@ class TestTheBackendGate:
         decision = await triage("What is Apache Spark?", manifest=spark_manifest())
 
         assert decision.route is Route.ANSWER
+
+
+class TestExplanationShape:
+    """How an answer is laid out is read from the phrasing -- no model call."""
+
+    @pytest.mark.parametrize(
+        ("question", "shape"),
+        [
+            ("How does the backend server and the User API use the database?", "flow"),
+            ("How do the frontend and the worker communicate?", "flow"),
+            ("What happens when I call POST /register?", "execution"),
+            ("How does a request flow through the application?", "execution"),
+            ("What is the scheduler?", "definition"),
+            ("What does CommandRunner do?", "definition"),
+            ("Why does this repository use a message queue?", "why"),
+            ("Why is this query slow?", "debugging"),
+            ("Where is authentication implemented?", "location"),
+            ("Which file defines the routes?", "location"),
+            ("What is the difference between the reader and the writer?", "comparison"),
+            ("Why use threads instead of processes here?", "comparison"),
+            ("How is this repository organized?", "architecture"),
+            ("Tell me something interesting", None),
+        ],
+    )
+    def test_shapes_from_phrasing(self, question: str, shape: str | None) -> None:
+        settled = explanation_shape(question)
+        assert (settled.value if settled else None) == shape
+
+    async def test_triage_carries_the_shape(self) -> None:
+        decision = await triage("Where is the parser implemented?", manifest=None)
+        assert decision.shape is not None and decision.shape.value == "location"

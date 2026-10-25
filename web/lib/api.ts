@@ -10,7 +10,12 @@
 
 import type {
   ApprovalResult,
+  ArchitectureFocus,
   ArchitectureView,
+  ExperienceListing,
+  ExperienceSessionView,
+  ExplorerResponse,
+  RuntimeView,
   Dashboard,
   DatasetPreview,
   EnvironmentResolving,
@@ -27,6 +32,7 @@ import type {
   RepoManifest,
   RunStarted,
   RunView,
+  RuntimeOverlay,
   SessionView,
   StepResult,
   WhatHappenedView,
@@ -111,12 +117,29 @@ export const api = {
   job: (jobId: string) => request<JobState>(`/jobs/${jobId}`),
   manifest: (jobId: string) => request<RepoManifest>(`/jobs/${jobId}/manifest`),
   architecture: (jobId: string) => request<ArchitectureView>(`/jobs/${jobId}/architecture`),
+  /** Measurements from real runs, placed on components. Empty until something ran. */
+  architectureRuntime: (jobId: string) =>
+    request<RuntimeOverlay>(`/jobs/${jobId}/architecture/runtime`),
 
   /**
    * Every interaction surface this repository offers, and which of them this
    * build can actually open. The tab list is gated on `runnable_surfaces`.
    */
   experiences: (jobId: string) => request<ExperienceCatalog>(`/jobs/${jobId}/experiences`),
+
+  // -- live experiences -----------------------------------------------------
+  /** The plan RepoLab would run, and the latest launch for this repository. */
+  runtime: (jobId: string) => request<RuntimeView>(`/jobs/${jobId}/runtime`),
+  /** Start the planned services. A person asks for this; nothing starts on its own. */
+  startRuntime: (jobId: string) => post<RuntimeView>(`/jobs/${jobId}/runtime`, {}),
+  runtimeById: (runtimeId: string) => request<RuntimeView>(`/runtimes/${runtimeId}`),
+  stopRuntime: (runtimeId: string) =>
+    request<{ runtime_id: string; status: string }>(`/runtimes/${runtimeId}`, { method: "DELETE" }),
+  /** One request to a running API, sent by RepoLab through its sidecar. */
+  runtimeRequest: (
+    runtimeId: string,
+    payload: { service: string; method: string; path: string; body?: string | null },
+  ) => post<ExplorerResponse>(`/runtimes/${runtimeId}/request`, payload),
 
   /** The SSE URL for a job. `EventSource` is constructed by the caller. */
   eventsUrl: (jobId: string) => `${API}/jobs/${jobId}/events`,
@@ -138,12 +161,44 @@ export const api = {
   runs: (repoUrl: string) => request<RunView[]>(`/runs?repo_url=${encodeURIComponent(repoUrl)}`),
 
   // -- experiments ----------------------------------------------------------
-  ask: (repoUrl: string, question: string, rows?: number) =>
+  ask: (
+    repoUrl: string,
+    question: string,
+    rows?: number,
+    context?: ArchitectureFocus,
+    experienceSessionId?: string,
+  ) =>
     post<ExperimentCreated>("/experiments", {
       repo_url: repoUrl,
       question,
       ...(rows ? { rows } : {}),
+      ...(context ? { context } : {}),
+      ...(experienceSessionId ? { experience_session_id: experienceSessionId } : {}),
     }),
+
+  // -- experiences ------------------------------------------------------------
+  experienceList: (jobId: string) => request<ExperienceListing>(`/jobs/${jobId}/experience-list`),
+  startExperience: (jobId: string, experienceId: string, strategy?: string) =>
+    post<ExperienceSessionView>(
+      `/jobs/${jobId}/experiences/${encodeURIComponent(experienceId)}/sessions`,
+      strategy ? { strategy } : {},
+    ),
+  experienceSession: (sessionId: string) =>
+    request<ExperienceSessionView>(`/experience-sessions/${sessionId}`),
+  runExperience: (sessionId: string, code: string, shufflePartitions?: number, actionId?: string) =>
+    post<{ run_id: string; events_url: string }>(`/experience-sessions/${sessionId}/runs`, {
+      code,
+      ...(shufflePartitions ? { shuffle_partitions: shufflePartitions } : {}),
+      ...(actionId ? { action_id: actionId } : {}),
+    }),
+  explainExperienceRun: (sessionId: string, runId: string) =>
+    post<{ run_id: string; events_url: string }>(`/experience-sessions/${sessionId}/runs/${runId}/explain`, {}),
+  miniLabCommand: (sessionId: string, command: string) =>
+    post<ExperienceSessionView["state"]["transcript"][number]>(`/experience-sessions/${sessionId}/minilab`, { command }),
+  stopExperience: (sessionId: string) =>
+    request<{ id: string; status: string }>(`/experience-sessions/${sessionId}`, { method: "DELETE" }),
+  /** The SSE URL for an events path the API returned, e.g. `/jobs/{id}/events`. */
+  eventsPath: (path: string) => `${API}${path}`,
   experiment: (id: string) => request<ExperimentState>(`/experiments/${id}`),
   experiments: (repoUrl: string) =>
     request<ExperimentState[]>(`/experiments?repo_url=${encodeURIComponent(repoUrl)}`),

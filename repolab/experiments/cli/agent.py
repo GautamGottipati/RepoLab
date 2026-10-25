@@ -75,6 +75,7 @@ from repolab.questions.investigation import (
     official_domain,
     overview_file,
 )
+from repolab.questions.models import ArchitectureFocus
 from repolab.sandbox.provider import SandboxProvider
 
 log = structlog.get_logger(__name__)
@@ -176,7 +177,9 @@ class CliExperimentAgent:
         emitter: EventEmitter | None = None,
         budget: CliExperimentBudget | None = None,
         limits: AgentLimits | None = None,
+        focus: ArchitectureFocus | None = None,
     ) -> None:
+        self._focus = focus
         self.repo_url = repo_url
         self.commit_sha = commit_sha
         self.artifact = artifact
@@ -334,7 +337,7 @@ class CliExperimentAgent:
             )
             or "- (none retrieved)",
             max_repeats=self._budget.max_repeats,
-        )
+        ) + (f"\n\n{self._focus.describe()}" if self._focus else "")
 
     def reproducibility_for(self, repeats: int) -> CliReproducibilityRecord:
         return CliReproducibilityRecord(

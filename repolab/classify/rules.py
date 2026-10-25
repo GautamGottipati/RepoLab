@@ -28,6 +28,7 @@ from repolab.evidence.models import CodeReference
 from repolab.manifest.models import (
     Classification,
     EntryPoint,
+    EntryPointKind,
     InteractionSurface,
     Service,
     SurfaceType,
@@ -100,8 +101,15 @@ class SurfaceScore(BaseModel):
         return any(weight >= STRONG for weight in self.kinds.values())
 
 
-def _collect(run: DetectorRun) -> dict[SurfaceType, SurfaceScore]:
-    """Group every citable signal under the surface it supports."""
+def _collect(
+    run: DetectorRun, launchers: frozenset[str] = frozenset()
+) -> dict[SurfaceType, SurfaceScore]:
+    """Group every citable signal under the surface it supports.
+
+    *launchers* are files a server start script runs (``nodemon ./bin/www``). An
+    executable under ``bin/`` that exists to start the web server is how the
+    server is launched, not a command line the project ships.
+    """
     scores: dict[SurfaceType, SurfaceScore] = {}
 
     def score_for(surface: SurfaceType) -> SurfaceScore:
@@ -112,10 +120,16 @@ def _collect(run: DetectorRun) -> dict[SurfaceType, SurfaceScore]:
             # A signal RepoLab cannot cite is not evidence, so it does not count.
             continue
 
+        references = finding.references
+        if finding.kind == "bin_executable" and launchers:
+            references = [ref for ref in references if ref.path not in launchers]
+            if not references:
+                continue
+
         mapped = SIGNAL_SURFACES.get(finding.kind)
         if mapped is not None:
             surface, weight = mapped
-            score_for(surface).contribute(finding.kind, weight, finding.references)
+            score_for(surface).contribute(finding.kind, weight, references)
             continue
 
         if finding.kind == "framework":
@@ -125,6 +139,23 @@ def _collect(run: DetectorRun) -> dict[SurfaceType, SurfaceScore]:
                 )
 
     return scores
+
+
+def server_launchers(entrypoints: list[EntryPoint]) -> frozenset[str]:
+    """Repository files that a web-server entry point's command runs."""
+    found: set[str] = set()
+    for entrypoint in entrypoints:
+        if entrypoint.kind is not EntryPointKind.WEB_SERVER:
+            continue
+        path = entrypoint.path or ""
+        base = path.rsplit("/", 1)[0] if "/" in path else ""
+        for token in entrypoint.command.split():
+            token = token.strip("'\"")
+            if "/" not in token or token.startswith("-"):
+                continue
+            relative = token.removeprefix("./")
+            found.add(f"{base}/{relative}" if base else relative)
+    return frozenset(found)
 
 
 def _corroborate(
@@ -238,7 +269,7 @@ def classify_deterministic(
     Produces one or more surfaces and recommends a primary experience. Never
     consults a model.
     """
-    scores = _collect(run)
+    scores = _collect(run, server_launchers(entrypoints or []))
     _corroborate(scores, entrypoints or [], services or [])
     overrides = _apply_compound_rules(scores, run)
     surfaces = _finalize(scores, overrides)

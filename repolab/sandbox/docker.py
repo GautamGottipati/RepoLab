@@ -154,8 +154,23 @@ def ensure_image(image: str, *, timeout: float = PULL_TIMEOUT) -> ImageStatus:
     return ImageStatus(image=image, present=True, pulled=True, seconds=elapsed)
 
 
-def build_run_command(image: str, name: str, host_workdir: Path) -> list[str]:
+#: Flags for a container that runs code a learner wrote or edited: no network,
+#: no capabilities, bounded processes and CPU. The event-log bind mount stays,
+#: and it is a fresh directory per run.
+HARDENED_FLAGS = (
+    "--network", "none",
+    "--cap-drop", "ALL",
+    "--security-opt", "no-new-privileges",
+    "--pids-limit", "512",
+    "--cpus", "4",
+)  # fmt: skip
+
+
+def build_run_command(
+    image: str, name: str, host_workdir: Path, *, hardened: bool = False
+) -> list[str]:
     """The argv that starts the container. Exposed so tests can assert it."""
+    extra = list(HARDENED_FLAGS) if hardened else []
     return [
         "docker",
         "run",
@@ -171,6 +186,7 @@ def build_run_command(image: str, name: str, host_workdir: Path) -> list[str]:
         # Spark's driver JVM needs headroom; the default can be tight.
         "--memory",
         "4g",
+        *extra,
         "--entrypoint",
         "/bin/sh",
         image,
@@ -201,7 +217,9 @@ class DockerEnvironment:
         host_workdir: Path | None = None,
         keep_container: bool = False,
         command_timeout: float = DEFAULT_COMMAND_TIMEOUT,
+        hardened: bool = False,
     ) -> None:
+        self._hardened = hardened
         self._container: str | None = None
         self._image: str | None = None
         self._command_timeout = command_timeout
@@ -264,7 +282,8 @@ class DockerEnvironment:
         source = from_checkpoint or image
         name = f"repolab-{uuid.uuid4().hex[:12]}"
         result = self._run_argv(
-            build_run_command(source, name, self._host_workdir), timeout=LIFECYCLE_TIMEOUT
+            build_run_command(source, name, self._host_workdir, hardened=self._hardened),
+            timeout=LIFECYCLE_TIMEOUT,
         )
         if result.returncode != 0:
             raise SandboxError(f"could not start a container from {source!r}: {_tail(result)}")

@@ -90,8 +90,9 @@ class TestTheRepositoryIsNotShippedToTheModel:
         limits = IngestLimits(max_llm_files=3)
 
         await ingest_clone(fake_repo_url, local_clone(root, sha), router=router, limits=limits)
-        # At most 3 summary calls plus one architecture call.
-        assert provider.call_count <= 4
+        # At most 3 summary calls, plus the two architecture passes (components,
+        # then orientation), each retried at most once on a schema failure.
+        assert provider.call_count <= 3 + 2 * 2
 
     async def test_selection_respects_the_file_cap(self, make_repo) -> None:
         root, _ = make_repo(SPARK_REPO)
@@ -124,6 +125,11 @@ class TestTheRepositoryIsNotShippedToTheModel:
         await ingest_clone(fake_repo_url, local_clone(root, sha), router=router, limits=limits)
         for call in provider.calls:
             for message in call.get("messages", []):
+                # The system message is a fixed prompt plus the response schema;
+                # repository text travels in the others.
+                if message.get("role") == "system":
+                    assert "# pad" not in message.get("content", "")
+                    continue
                 assert len(message.get("content", "")) < 5000
 
     async def test_the_total_byte_budget_bounds_what_is_sent(

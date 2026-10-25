@@ -15,7 +15,7 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { createContext, useContext, useEffect, useMemo, useState, type ReactNode } from "react";
 
-import { ActivityFeed, PhaseTracker, phasesFrom } from "@/components/activity";
+import { AgentActivityPanel } from "@/components/activity";
 import { Badge, ErrorNote, Note } from "@/components/ui";
 import { api, ApiError, optional } from "@/lib/api";
 import { field, isBoolean, isString, useEventStream, type StreamStatus } from "@/lib/events";
@@ -48,6 +48,12 @@ type Workspace = {
    */
   environmentReady: boolean | null;
   error: string | null;
+  /**
+   * The top of the right-hand column, where a page can show context of its own
+   * (Ask RepoLab's repository context) above the agent activity. `null` until
+   * mounted.
+   */
+  asideSlot: HTMLElement | null;
 };
 
 const WorkspaceContext = createContext<Workspace | null>(null);
@@ -87,6 +93,7 @@ export function WorkspaceShell({ jobId, children }: { jobId: string; children: R
   const [architecture, setArchitecture] = useState<ArchitectureView | null>(null);
   const [experiences, setExperiences] = useState<ExperienceCatalog | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [asideSlot, setAsideSlot] = useState<HTMLElement | null>(null);
 
   const { events, status } = useEventStream(api.eventsUrl(jobId));
   const terminal = job?.status === "completed" || job?.status === "failed";
@@ -161,9 +168,9 @@ export function WorkspaceShell({ jobId, children }: { jobId: string; children: R
     ready: manifest !== null,
     environmentReady,
     error,
+    asideSlot,
   };
 
-  const phases = phasesFrom(events);
 
   // The last *reported* failure, in the words the backend chose. The stream's
   // own terminal frame is also a `failed` event and carries no explanation, so
@@ -249,19 +256,21 @@ export function WorkspaceShell({ jobId, children }: { jobId: string; children: R
             {children}
           </main>
 
-          <aside className="w-full shrink-0 lg:w-80" aria-label="Agent activity">
-            <h2 className="text-xs font-semibold uppercase tracking-wide text-neutral-500">
-              Agent activity
-            </h2>
-            <div className="mt-3">
-              <PhaseTracker events={events} done={job?.status === "completed"} />
-            </div>
-            <p className="mt-3 text-xs text-neutral-400">
-              {phases.length} of {phases[0]?.total ?? 4} phases · {events.length} events
-            </p>
-            <div className="mt-2">
-              <ActivityFeed events={events} height="h-[28rem]" />
-            </div>
+          <aside className="flex w-full shrink-0 flex-col gap-6 lg:w-80" aria-label="Context and agent activity">
+            <div ref={setAsideSlot} className="empty:hidden flex flex-col gap-6" />
+            <AgentActivityPanel
+              events={events}
+              done={job?.status === "completed"}
+              summary={
+                architecture
+                  ? {
+                      evidence: architecture.graph.nodes.reduce((n, c) => n + c.source_references.length, 0),
+                      components: architecture.node_count,
+                      flows: architecture.graph.primary_flows.length,
+                    }
+                  : null
+              }
+            />
           </aside>
         </div>
       </div>

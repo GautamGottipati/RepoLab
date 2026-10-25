@@ -48,6 +48,27 @@ DAEMON_NAME_FRAGMENTS: tuple[str, ...] = ("daemon", "server", "service")
 #: Script names that start or stop a service.
 SERVICE_CONTROL_PREFIXES: tuple[str, ...] = ("start", "stop", "restart", "run-server")
 
+#: Extensions of files that are run directly: scripts and extensionless executables.
+_SCRIPT_EXTENSIONS: frozenset[str] = frozenset({"", ".sh", ".bash", ".cmd", ".bat", ".ps1"})
+
+
+def _names_daemon(stem: str, extension: str) -> bool:
+    """Whether a file's name says it is, or starts, a long-running service.
+
+    "daemon" does so anywhere (``CassandraDaemon.java``). "server" and "service"
+    only on a script or executable: in source code they name classes and
+    modules -- an Angular ``auth.service.ts`` is dependency injection, not a
+    daemon.
+    """
+    if "daemon" in stem:
+        return True
+    if extension not in _SCRIPT_EXTENSIONS:
+        return False
+    return any(fragment in stem for fragment in DAEMON_NAME_FRAGMENTS) or stem.startswith(
+        SERVICE_CONTROL_PREFIXES
+    )
+
+
 #: Extensions that are never shipped executables even inside bin/.
 _NON_EXECUTABLE_EXTENSIONS: frozenset[str] = frozenset(
     {".md", ".txt", ".rst", ".xml", ".json", ".yaml", ".yml", ".sample", ".template", ".in"}
@@ -98,9 +119,7 @@ def detect_structure(context: DetectionContext) -> DetectorRun:
                 references=[reference(entry.path, commit_sha=sha)],
             )
 
-        if any(fragment in stem for fragment in DAEMON_NAME_FRAGMENTS) or stem.startswith(
-            SERVICE_CONTROL_PREFIXES
-        ):
+        if _names_daemon(stem, entry.extension):
             run.add(
                 "server_daemon",
                 entry.path,

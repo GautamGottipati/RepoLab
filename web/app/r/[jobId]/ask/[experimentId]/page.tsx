@@ -32,6 +32,8 @@ import type {
   SparkExperimentState,
 } from "@/lib/types";
 
+import { useWorkspace } from "../../workspace";
+
 /**
  * Metrics worth a chart, in the order they answer the demo question.
  *
@@ -44,6 +46,7 @@ const CHARTED = ["empty partitions", "total runtime", "partition skew ratio", "t
 
 export default function ResultsPage({ params }: PageProps<"/r/[jobId]/ask/[experimentId]">) {
   const { experimentId } = use(params);
+  const { jobId, architecture } = useWorkspace();
 
   const [experiment, setExperiment] = useState<ExperimentState | null>(null);
   const [explanation, setExplanation] = useState<ExplanationView | null>(null);
@@ -90,7 +93,11 @@ export default function ResultsPage({ params }: PageProps<"/r/[jobId]/ask/[exper
       />
     );
   }
-  if (experiment?.kind === "answer") return <AnsweredQuestion experiment={experiment} />;
+  if (experiment?.kind === "answer") {
+    return (
+      <AnsweredQuestion experiment={experiment} jobId={jobId} architecture={architecture?.graph ?? null} />
+    );
+  }
   return (
     <SparkResults
       experiment={experiment}

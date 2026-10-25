@@ -29,6 +29,8 @@ from repolab.agents.models import AgentLimits, AgentRun
 from repolab.agents.repository_tools import build_repository_tools
 from repolab.agents.runtime import AgentRuntime
 from repolab.agents.tools import ToolRegistry
+from repolab.architecture.models import ArchitectureGraph
+from repolab.architecture.runtime import RuntimeOverlay
 from repolab.events import EventEmitter, EventType, NullEmitter
 from repolab.evidence.models import CodeReference, EvidenceBundle
 from repolab.experiments.investigation import code_references_from, documentation_from
@@ -39,14 +41,24 @@ from repolab.ingest.tree import build_file_tree
 from repolab.interfaces import ResearchProvider
 from repolab.llm import LLMError, Purpose
 from repolab.manifest.models import RepoManifest
+from repolab.questions.context import (
+    ArchitectureSlice,
+    architecture_slice,
+    follow_up_questions,
+    runtime_measurements,
+)
 from repolab.questions.investigation import (
     QuestionInvestigationPlanner,
     official_domain,
     overview_file,
 )
+from repolab.questions.layout import Resolver, verify_layout
 from repolab.questions.models import (
+    MAX_FOLLOW_UPS,
     AnswerClaimKind,
     AnswerResult,
+    ArchitectureFocus,
+    ExplanationShape,
     GroundedAnswer,
     QuestionKind,
     UnsupportedAnswerClaim,
@@ -59,13 +71,18 @@ STEP_LABEL = "answer"
 
 AGENT_NAME = "answer_agent"
 
-#: Output budget. Super reasons before it answers, and the reasoning counts.
-ANSWER_MAX_TOKENS = 4096
+#: Output budget. Super reasons before it answers, and the reasoning counts --
+#: and a laid-out answer (steps, a diagram, sections) is longer than prose.
+ANSWER_MAX_TOKENS = 8192
 
-ANSWER_TIMEOUT_SECONDS = 120.0
+ANSWER_TIMEOUT_SECONDS = 150.0
 
 #: How much of a read file reaches the prompt, per file.
 EXCERPT_LINES = 60
+
+#: Code references an answer carries: what the investigation read, then what the
+#: architecture analysis had already cited for the components in question.
+MAX_REFERENCES = 16
 
 SYSTEM_PROMPT = (
     "You answer a developer's question about a software repository, using only "
@@ -87,9 +104,73 @@ SYSTEM_PROMPT = (
     "'support'.\n"
     "  inferred   - a conclusion you draw. Say which claims it rests on.\n"
     "\n"
+    "  measured   - a value from a recorded run. Only when measured values are "
+    "listed; put the measurement's name in 'support'.\n"
+    "\n"
     "Never cite a file or URL that is not in the evidence. Never state a number "
-    "the evidence does not contain."
+    "the evidence does not contain. Official documentation explains general "
+    "behaviour; it never overrides what this repository's files show.\n"
+    "\n"
+    "Write for someone new to this repository. 'summary' is the direct answer "
+    "in one to three short, plain sentences a beginner understands in seconds. "
+    "When you use a project-specific term, say what it is the first time "
+    '("a Mongoose model called Registration", not "the Registration model"). '
+    "Then lay the answer out in the requested shape:\n"
+    "  visual    - three to eight boxes and the arrows between them. Draw an "
+    "arrow only when a file in the evidence or a listed relationship (edge:...) "
+    "shows it; put that in 'support'. If you believe a relationship but nothing "
+    "shows it, set support to 'inferred'. If you cannot establish a relationship, "
+    "leave it out and say so in a caveat -- never draw a complete-looking flow "
+    "the evidence does not support. Use component ids from the architecture map "
+    "in 'component_id' when a box is one of them.\n"
+    "  steps     - numbered, a few words of title and one or two sentences each, "
+    "with the files that show each step in 'sources'.\n"
+    "  sections  - with 'basis' evidenced (a cited file shows it), inferred (your "
+    "reading of the evidence) or unknown (the evidence does not say). Never "
+    "present design intent as evidenced unless a file or page states it.\n"
+    "  locations - role and path for each place in the code, in order.\n"
+    "  follow_ups - two to four next questions about this repository a learner "
+    "would ask after this answer."
 )
+
+#: What each shape of answer should fill in, beyond the summary and claims.
+SHAPE_GUIDANCE: dict[ExplanationShape, str] = {
+    ExplanationShape.FLOW: (
+        "flow: a visual of what talks to what -- including the intermediate layers "
+        "the code shows between the parts asked about (the module, class or model "
+        "each one calls), not only the endpoints -- then steps in the order data moves."
+    ),
+    ExplanationShape.EXECUTION: (
+        "execution: steps in the order things happen, from the trigger to the "
+        "result; a visual of the same sequence if the evidence connects it."
+    ),
+    ExplanationShape.DEFINITION: (
+        "definition: sections with keys what (what it is), role (its role in this "
+        "repository), connects (how it connects to other parts), where (where it "
+        "is implemented); locations for the main files."
+    ),
+    ExplanationShape.WHY: (
+        "why: sections with keys problem, choice, helps, tradeoffs -- each with an honest basis."
+    ),
+    ExplanationShape.COMPARISON: (
+        "comparison: subjects and rows (purpose, used by, input, output, "
+        "implemented in...), each row with its support; only attributes the "
+        "evidence shows, or support 'inferred'."
+    ),
+    ExplanationShape.LOCATION: (
+        "location: locations in order (entry, validation, logic, persistence...), "
+        "each with the path copied exactly."
+    ),
+    ExplanationShape.ARCHITECTURE: (
+        "architecture: a visual of the main parts and how they connect, then "
+        "steps or sections explaining each part."
+    ),
+    ExplanationShape.DEBUGGING: (
+        "debugging: sections with keys symptom, cause, check -- what the evidence "
+        "shows, what it suggests, and how the reader could confirm it."
+    ),
+    ExplanationShape.GENERAL: "general: steps or sections, whichever explains it best.",
+}
 
 PROMPT_TEMPLATE = """\
 Question ({kind}):
@@ -108,7 +189,16 @@ Repository files and lines relevant to the question:
 
 Official documentation retrieved:
 {documentation}
+
+How RepoLab's architecture analysis maps the parts involved (cite a
+relationship by its edge id):
+{architecture}
+
+Measured values from recorded runs:
+{measurements}
 {note}
+Answer shape: {shape}
+
 Answer the question."""
 
 
@@ -132,20 +222,37 @@ class AnswerAgent:
         research: ResearchProvider | None = None,
         emitter: EventEmitter | None = None,
         limits: AgentLimits | None = None,
+        focus: ArchitectureFocus | None = None,
+        architecture: ArchitectureGraph | None = None,
+        overlay: RuntimeOverlay | None = None,
     ) -> None:
         self.repo_url = repo_url
+        self._focus = focus
+        self._architecture = architecture
+        self._overlay = overlay
         self.commit_sha = commit_sha
         self.repository_root = Path(repository_root)
         self._manifest = manifest
         self._router = router
         self._research = research
         self._emitter = emitter if emitter is not None else NullEmitter()
-        self._limits = limits if limits is not None else AgentLimits(max_iterations=10)
+        # Focus files, the README, the question's terms, the files they hit and the
+        # modules those import, then the docs: a bounded, read-only walk.
+        self._limits = limits if limits is not None else AgentLimits(max_iterations=16)
 
     async def answer(
-        self, question: str, *, kind: QuestionKind, downgraded: str | None = None
+        self,
+        question: str,
+        *,
+        kind: QuestionKind,
+        downgraded: str | None = None,
+        shape: ExplanationShape | None = None,
     ) -> AnswerResult:
-        """Investigate, then answer. Never raises for a model failure."""
+        """Investigate, then answer. Never raises for a model failure.
+
+        *shape* is the layout the question's phrasing settled, if it did; when it
+        did not, the model picks one in the same call.
+        """
         self._emitter.emit(
             EventType.AGENT_STARTED,
             "reading the repository to answer the question",
@@ -153,13 +260,17 @@ class AnswerAgent:
             data={"question": question[:200], "kind": kind.value},
         )
 
-        run, evidence, overview = await self._investigate(question)
+        selected = architecture_slice(self._architecture, question, focus=self._focus)
+        run, evidence, overview = await self._investigate(question, selected)
+        suggestions = follow_up_questions(self._architecture, selected, asked=question)
         result = AnswerResult(
             question=question,
             kind=kind,
+            shape=shape or ExplanationShape.GENERAL,
             evidence=evidence,
             findings=[step.status for step in run.steps if step.status][:12],
             downgraded=downgraded,
+            follow_ups=suggestions,
         )
 
         if self._router is None:
@@ -175,7 +286,9 @@ class AnswerAgent:
                 purpose=Purpose.QUESTION_ANSWER,
                 schema=GroundedAnswer,
                 system=SYSTEM_PROMPT,
-                prompt=self._prompt(question, kind, evidence, overview, downgraded),
+                prompt=self._prompt(
+                    question, kind, evidence, overview, downgraded, selected, shape
+                ),
                 max_tokens=ANSWER_MAX_TOKENS,
                 timeout_seconds=ANSWER_TIMEOUT_SECONDS,
             )
@@ -189,7 +302,14 @@ class AnswerAgent:
             completion.value,
             evidence=evidence,
             repository_root=self.repository_root,
+            architecture=selected,
         )
+        # The phrasing's decision stands; the model's choice fills in only when
+        # the rules left it open.
+        if shape is not None:
+            result.answer.answer.shape = shape
+        result.shape = result.answer.answer.shape
+        result.follow_ups = _merge(result.answer.answer.follow_ups, suggestions, question)
         if not result.answer.grounded:
             self._emitter.emit(
                 EventType.AGENT_STATUS,
@@ -202,7 +322,7 @@ class AnswerAgent:
     # -- investigation ------------------------------------------------------
 
     async def _investigate(
-        self, question: str
+        self, question: str, selected: ArchitectureSlice
     ) -> tuple[AgentRun, EvidenceBundle, tuple[str | None, str]]:
         tree = build_file_tree(self.repository_root)
         context = DetectionContext(root=self.repository_root, tree=tree, commit_sha=self.commit_sha)
@@ -214,6 +334,8 @@ class AnswerAgent:
         planner = QuestionInvestigationPlanner(
             question,
             overview=overview,
+            focus_paths=[ref.path for ref in self._focus.source_references] if self._focus else [],
+            paths={entry.path for entry in tree.files},
             domain=domain,
             research_available=self._research is not None,
             subject=_subject(self.repo_url),
@@ -230,9 +352,15 @@ class AnswerAgent:
         run = await runtime.run(lambda: {})
 
         references = [*_read_references(run, self.commit_sha), *code_references_from(run)]
+        # What the architecture analysis already cited for these components joins
+        # the evidence as it is: its excerpts were read at the same commit.
+        mapped = [ref for ref in selected.references() if ref.path in {e.path for e in tree.files}]
         evidence = EvidenceBundle(
-            code_references=_dedupe(references)[:12],
+            code_references=[*_dedupe(references)[:12], *_new(mapped, references)][:MAX_REFERENCES],
             documentation=documentation_from(run)[:4],
+            measurements=runtime_measurements(
+                self._overlay, self._architecture, selected.node_ids(), focus=self._focus
+            ),
         )
         overview_text = next(
             (ref.excerpt or "" for ref in evidence.code_references if ref.path == overview),
@@ -249,6 +377,8 @@ class AnswerAgent:
         evidence: EvidenceBundle,
         overview: tuple[str | None, str],
         downgraded: str | None,
+        selected: ArchitectureSlice | None = None,
+        shape: ExplanationShape | None = None,
     ) -> str:
         overview_path, overview_text = overview
         code = [
@@ -266,6 +396,17 @@ class AnswerAgent:
         note = (
             f"\nNote for the reader, to mention in a caveat: {downgraded}\n" if downgraded else ""
         )
+        if self._focus is not None:
+            note += f"\nAsked from the Architecture page. {self._focus.describe()}\n"
+        measured = [
+            f"- {m.name}: {m.value:g} {m.unit} ({m.source.value})" for m in evidence.measurements
+        ]
+        if shape is not None:
+            shape_text = SHAPE_GUIDANCE[shape]
+        else:
+            shape_text = "choose the best of these and set 'shape' to it:\n" + "\n".join(
+                f"  {text}" for text in SHAPE_GUIDANCE.values()
+            )
         return PROMPT_TEMPLATE.format(
             kind=kind.value,
             question=question,
@@ -276,7 +417,11 @@ class AnswerAgent:
             overview=_indent(overview_text.strip()[:4000]) or "  (no README found)",
             code="\n".join(code) or "- (no matches)",
             documentation="\n".join(docs) or "- (none retrieved)",
+            architecture=(selected or ArchitectureSlice()).describe(),
+            measurements="\n".join(measured)
+            or "- (none: nothing has been run, so state no measured values)",
             note=note,
+            shape=shape_text,
         )
 
 
@@ -308,6 +453,7 @@ def verify_answer(
     *,
     evidence: EvidenceBundle,
     repository_root: Path | None = None,
+    architecture: ArchitectureSlice | None = None,
 ) -> VerifiedAnswer:
     """Check each claim's support against the evidence actually gathered.
 
@@ -349,7 +495,23 @@ def verify_answer(
                     )
                 )
 
-    return VerifiedAnswer(answer=answer, unsupported=unsupported, checked_claims=checked)
+    layout = verify_layout(
+        answer,
+        Resolver(
+            evidence=evidence,
+            root=repository_root,
+            slice=architecture or ArchitectureSlice(),
+        ),
+    )
+    unsupported.extend(layout.unsupported)
+    checked += sum(1 for claim in answer.claims if claim.kind is AnswerClaimKind.MEASURED)
+    return VerifiedAnswer(
+        answer=answer,
+        unsupported=unsupported,
+        checked_claims=checked,
+        not_established=layout.not_established,
+        dropped=layout.dropped,
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -378,6 +540,22 @@ def _read_references(run: AgentRun, commit_sha: str) -> list[CodeReference]:
             )
         )
     return references
+
+
+def _new(candidates: list[CodeReference], existing: list[CodeReference]) -> list[CodeReference]:
+    seen = {(ref.path, ref.start_line) for ref in existing}
+    return [ref for ref in candidates if (ref.path, ref.start_line) not in seen]
+
+
+def _merge(proposed: list[str], derived: list[str], asked: str) -> list[str]:
+    """The model's next questions first, then ones from the architecture."""
+    merged: list[str] = []
+    for question in [*proposed, *derived]:
+        if question.strip().lower() == asked.strip().lower():
+            continue
+        if question.lower() not in {q.lower() for q in merged}:
+            merged.append(question)
+    return merged[:MAX_FOLLOW_UPS]
 
 
 def _dedupe(references: list[CodeReference]) -> list[CodeReference]:

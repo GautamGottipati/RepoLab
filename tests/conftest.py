@@ -17,6 +17,22 @@ from repolab.ingest.clone import CloneResult
 from repolab.ingest.url import RepoUrl
 
 
+@pytest.fixture(autouse=True)
+def no_real_queue(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Keep every test off the developer's real Redis queue.
+
+    A test whose database is SQLite but which enqueues for real hands a job to
+    the running dev worker, which then works against Postgres where that job
+    does not exist (``job_events_job_id_fkey`` violations) and spends model
+    calls on it. Tests that need the queue stub the enqueue they expect.
+    """
+
+    def refuse(*_args: Any, **_kwargs: Any) -> Any:
+        raise RuntimeError("tests must not enqueue onto the real Redis queue")
+
+    monkeypatch.setattr("worker.jobs.build_queue", refuse)
+
+
 @pytest.fixture
 def capture_logs() -> Iterator[list[dict[str, Any]]]:
     """Capture structlog events emitted during a test.

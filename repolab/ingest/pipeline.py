@@ -18,20 +18,23 @@ from pathlib import Path
 import structlog
 from pydantic import BaseModel, Field
 
+from repolab.architecture import ArchitectureGraph, build_architecture
 from repolab.classify import classify
 from repolab.evidence.models import EvidenceBundle
+from repolab.experiences.facts import gather_facts
 from repolab.ingest.clone import CloneResult, TemporaryClone
 from repolab.ingest.content import ReadBudget
 from repolab.ingest.detectors import DetectionContext, DetectionOutcome, detect_all
-from repolab.ingest.enrich import EnrichmentResult, enrich
+from repolab.ingest.enrich import EnrichmentResult, select_files_for_summary, summarise_files
 from repolab.ingest.languages import LanguageStat, detect_languages
 from repolab.ingest.limits import DEFAULT_LIMITS, IngestLimits, LimitReport
 from repolab.ingest.tree import build_file_tree
 from repolab.ingest.url import RepoUrl, validate_repo_url
 from repolab.llm import ModelRouter
-from repolab.manifest.architecture import ArchitectureGraph
-from repolab.manifest.builder import build_architecture, build_evidence, build_manifest
+from repolab.manifest.architecture import GraphSource
+from repolab.manifest.builder import build_evidence, build_manifest
 from repolab.manifest.models import Classification, RepoManifest
+from repolab.runtime.plan import plan_runtime
 
 log = structlog.get_logger(__name__)
 
@@ -65,7 +68,7 @@ class IngestionResult(BaseModel):
 
     @property
     def enriched(self) -> bool:
-        return self.enrichment.ran
+        return self.enrichment.ran or self.architecture.generated_by is GraphSource.SUPER_ENRICHED
 
 
 async def ingest_repository(
@@ -138,12 +141,37 @@ async def ingest_clone(
         languages=languages,
         classification=classification,
     )
-    architecture = build_architecture(outcome)
+    manifest.runtime = plan_runtime(context, manifest)
+    manifest.facts = gather_facts(context)
+    # The architecture reads its own bounded set of source files and, given a
+    # router, asks Super once for names, groups, flows and a summary.
+    enrichment = EnrichmentResult()
+    if router is not None:
+        # Nano's file summaries are optional input to Super's architecture pass,
+        # bounded by the same byte budget as before.
+        selected = select_files_for_summary(outcome, context, budget)
+        enrichment.summaries, summary_notes = await summarise_files(
+            router, context, selected, budget
+        )
+        enrichment.notes.extend(summary_notes)
+    architecture = await build_architecture(
+        context,
+        outcome,
+        manifest,
+        router=router,
+        summaries={path: s.purpose for path, s in enrichment.summaries.items()},
+    )
+    enrichment.architecture_summary = architecture.summary
+    if router is not None and architecture.generated_by is not GraphSource.SUPER_ENRICHED:
+        enrichment.notes.append("architecture synthesis failed; the graph is deterministic")
     evidence = build_evidence(outcome)
 
-    enrichment = await enrich(router, context, outcome, architecture, budget)
-
     notes = list(enrichment.notes)
+    if router is None:
+        notes.append(
+            "LLM enrichment skipped: no model router configured "
+            "(the manifest and architecture below are fully deterministic)"
+        )
     if tree.truncated:
         notes.append(
             f"file tree truncated at {tree.file_count} files; detection saw a partial repository"

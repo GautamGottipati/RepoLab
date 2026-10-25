@@ -27,6 +27,7 @@ from repolab.manifest.models import RepoManifest, SurfaceType
 from repolab.questions.models import (
     MAX_REASON_LENGTH,
     ExperimentBackend,
+    ExplanationShape,
     QuestionKind,
     Route,
     Triage,
@@ -67,6 +68,69 @@ _REPOSITORY = (
     r"\b(implemented|implementation|entry ?point|source code|call(s|ed)? by)\b",
     r"\bhow does (this|the) (repo|repository|code|project|codebase)\b",
 )
+
+#: Phrasings that settle how an answer is best laid out. Generic on purpose:
+#: they read the shape of the question, never the names in it.
+_SHAPES: dict[ExplanationShape, tuple[str, ...]] = {
+    ExplanationShape.COMPARISON: (
+        r"\bdifferences? between\b",
+        r"\b(vs\.?|versus)\b",
+        r"\bcompared? (to|with)\b",
+        r"\b(instead of|rather than)\b",
+    ),
+    ExplanationShape.LOCATION: (
+        r"\bwhere (is|are|does|do|can i find)\b",
+        r"\bwhich (file|files|module|modules|directory|directories|folder|class|package)\b",
+    ),
+    ExplanationShape.EXECUTION: (
+        r"\bwhat happens (when|after|before|during)\b",
+        r"\b(walk|step) me through\b",
+        r"\bfollow (a|an|the)\b",
+        r"\b(life ?cycle)\b",
+        r"\bwhen (i|you|a user|someone) "
+        r"(call|calls|run|runs|submit|submits|send|sends|start|starts)\b",
+        r"\bhow (does|do|is) (a|an|the) (request|job|command|query|message|event|task)s? "
+        r"(flow|travel|get|go|move|processed|handled|executed|run)\b",
+    ),
+    ExplanationShape.FLOW: (
+        r"\bhow (does|do) .+ (use|talk to|call|communicate with|connect to|interact with|"
+        r"reach|send|write to|read from|store|persist|depend on|get data from)\b",
+        r"\bhow (does|do) (data|information|records?) (get|go|flow|move|reach)\b",
+        r"\bdata ?flow\b",
+        r"\bhow do .+ (communicate|interact|talk)\b",
+    ),
+    ExplanationShape.DEBUGGING: (
+        r"\b(why|what causes|how (do|can) i (fix|debug)|debug)\b.*\b(slow|fail\w*|errors?|"
+        r"crash\w*|broken|bugs?|exceptions?|time ?outs?|hang\w*)\b",
+    ),
+    ExplanationShape.WHY: (
+        r"^\s*why\b",
+        r"\bwhat is the (reason|rationale) (for|of|behind)\b",
+    ),
+    ExplanationShape.ARCHITECTURE: (
+        r"\barchitecture\b",
+        r"\bhow is (this|the) (repo|repository|project|codebase|system|application) "
+        r"(organi[sz]ed|structured|laid out)\b",
+        r"\bmain (parts|components|pieces|modules)\b",
+        r"\bhow does (this|the) (system|project|repository|application|app|codebase) work\b",
+    ),
+    ExplanationShape.DEFINITION: (
+        r"^\s*what (is|are) (a |an |the )?[\w .+/@-]+\??\s*$",
+        r"^\s*what does .+ do\??\s*$",
+        r"\bwhat is the (role|job|purpose) of\b",
+    ),
+}
+
+#: When two shapes match, the more specific one wins over the general one.
+_MORE_SPECIFIC = {
+    (ExplanationShape.DEBUGGING, ExplanationShape.WHY),
+    (ExplanationShape.EXECUTION, ExplanationShape.FLOW),
+    (ExplanationShape.EXECUTION, ExplanationShape.ARCHITECTURE),
+    (ExplanationShape.FLOW, ExplanationShape.ARCHITECTURE),
+    (ExplanationShape.LOCATION, ExplanationShape.DEFINITION),
+    (ExplanationShape.COMPARISON, ExplanationShape.DEFINITION),
+    (ExplanationShape.COMPARISON, ExplanationShape.WHY),
+}
 
 TRIAGE_SYSTEM_PROMPT = (
     "You classify a question a developer asked about a software repository.\n"
@@ -116,6 +180,21 @@ def rule_kind(question: str) -> QuestionKind | None:
     }
     matched = [kind for kind, score in scores.items() if score > 0]
     return matched[0] if len(matched) == 1 else None
+
+
+def explanation_shape(question: str) -> ExplanationShape | None:
+    """How the answer should be laid out, when the phrasing alone settles it.
+
+    Not a second classifier: no model is asked. When the phrasing is ambiguous
+    the answer's own model call chooses, so deciding the layout never costs a
+    call of its own.
+    """
+    text = question.strip().lower()
+    matched = {shape for shape, patterns in _SHAPES.items() if _hits(patterns, text)}
+    for specific, general in _MORE_SPECIFIC:
+        if specific in matched:
+            matched.discard(general)
+    return matched.pop() if len(matched) == 1 else None
 
 
 def _fallback_kind(question: str) -> QuestionKind:
@@ -199,6 +278,7 @@ async def triage(
     artifacts: list[BuildArtifact] | None = None,
     router: TriageRouter | None = None,
     design_available: bool = True,
+    spark_session: str | None = None,
 ) -> Triage:
     """Classify *question* and decide whether to answer it or test it.
 
@@ -208,9 +288,12 @@ async def triage(
     canned experiment that does not address what was asked.
     """
     artifacts = list(artifacts or [])
-    spark = spark_backend_available(manifest)
+    # A ready Spark experience session is a real runtime to experiment on,
+    # whether or not the repository has a job of its own.
+    spark = spark_session is not None or spark_backend_available(manifest)
 
     kind, reason, decided_by = await _classify(question, manifest=manifest, router=router)
+    shape = explanation_shape(question)
 
     # The demo path: a question naming the Spark variable, on a repository whose
     # Spark job RepoLab can run, is testable whatever the wording.
@@ -219,7 +302,9 @@ async def triage(
         reason = "it names a Spark setting this repository's job can be run with"
 
     if kind is not QuestionKind.TESTABLE:
-        return Triage(kind=kind, reason=reason, decided_by=decided_by, route=Route.ANSWER)
+        return Triage(
+            kind=kind, reason=reason, decided_by=decided_by, route=Route.ANSWER, shape=shape
+        )
 
     if spark:
         return Triage(
@@ -228,6 +313,8 @@ async def triage(
             decided_by=decided_by,
             route=Route.EXPERIMENT,
             backend=ExperimentBackend.SPARK,
+            shape=shape,
+            experience_session=spark_session,
         )
 
     if cli_artifact(artifacts) is not None:
@@ -238,6 +325,7 @@ async def triage(
                 decided_by=decided_by,
                 route=Route.EXPERIMENT,
                 backend=ExperimentBackend.CLI,
+                shape=shape,
             )
         downgraded = (
             "This question could be tested against the built environment, but designing "
@@ -255,6 +343,7 @@ async def triage(
         decided_by=decided_by,
         route=Route.ANSWER,
         downgraded=downgraded,
+        shape=shape,
     )
 
 

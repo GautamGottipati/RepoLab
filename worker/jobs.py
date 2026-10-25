@@ -137,6 +137,35 @@ def enqueue_environment_resolution(
     return str(enqueued.id)
 
 
+#: Installing a frontend's dependencies, building it and waiting for every
+#: service to answer: an Angular install alone can take several minutes.
+RUNTIME_TIMEOUT_SECONDS = 3600
+
+
+def enqueue_runtime_start(
+    job_id: str, runtime_id: str, url: str, *, queue: Queue | None = None
+) -> str:
+    """Queue a launch of a repository's planned services. Only a person starts one."""
+    target = queue or build_queue()
+    enqueued = target.enqueue(
+        "worker.runtime_tasks.start_runtime",
+        job_id,
+        runtime_id,
+        url,
+        job_timeout=RUNTIME_TIMEOUT_SECONDS,
+        result_ttl=3600,
+    )
+    return str(enqueued.id)
+
+
+def enqueue_runtime_stop(runtime_id: str, *, queue: Queue | None = None) -> str:
+    target = queue or build_queue()
+    enqueued = target.enqueue(
+        "worker.runtime_tasks.stop_runtime", runtime_id, job_timeout=600, result_ttl=600
+    )
+    return str(enqueued.id)
+
+
 def enqueue_lesson_generation(job_id: str, url: str, *, queue: Queue | None = None) -> str:
     """Queue lesson generation for a repository whose environment is ready."""
     target = queue or build_queue()

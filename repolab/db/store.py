@@ -6,6 +6,8 @@ duplicates, so a repository has one current record per commit.
 
 from __future__ import annotations
 
+from typing import TYPE_CHECKING
+
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
@@ -18,6 +20,10 @@ from repolab.db.models import (
 )
 from repolab.ingest.pipeline import IngestionResult
 from repolab.manifest.models import RepoManifest
+
+if TYPE_CHECKING:
+    from repolab.architecture.models import ArchitectureGraph
+    from repolab.architecture.runtime import RuntimeOverlay
 
 
 def get_or_create_repository(session: Session, result: IngestionResult) -> Repository:
@@ -87,7 +93,7 @@ def save_ingestion(session: Session, result: IngestionResult) -> Ingestion:
         generated_by=result.architecture.generated_by.value,
         node_count=len(result.architecture.nodes),
         edge_count=len(result.architecture.edges),
-        summary=result.enrichment.architecture_summary,
+        summary=result.architecture.summary or result.enrichment.architecture_summary,
     )
     ingestion.evidence = [
         IngestionEvidence(
@@ -142,3 +148,56 @@ def load_manifest_for_job(session: Session, job_id: str) -> RepoManifest | None:
         select(RepoManifestRecord).where(RepoManifestRecord.ingestion_id == job.ingestion_id)
     )
     return None if record is None else RepoManifest.model_validate(record.manifest)
+
+
+def load_architecture(session: Session, repo_url: str) -> ArchitectureGraph | None:
+    """The most recent architecture graph recorded for *repo_url*."""
+    from repolab.architecture import load_graph
+
+    ingestion = load_latest_ingestion(session, repo_url)
+    if ingestion is None or ingestion.architecture is None:
+        return None
+    try:
+        return load_graph(ingestion.architecture.graph)
+    except ValueError:
+        return None
+
+
+def load_runtime_overlay(
+    session: Session, repo_url: str, graph: ArchitectureGraph
+) -> RuntimeOverlay:
+    """Measured values from this repository's most recent real runs, on *graph*.
+
+    Only stored runs contribute: the latest Spark run's event-log measurements
+    and the latest completed CLI experiment. Empty when nothing has run.
+    """
+    from repolab.architecture.runtime import RuntimeOverlay, cli_overlay, roll_up, spark_overlay
+    from repolab.db.models import ExperimentRecord, SparkRun
+
+    overlay = RuntimeOverlay()
+    spark_run = (
+        session.query(SparkRun)
+        .filter(SparkRun.repo_url == repo_url)
+        .order_by(SparkRun.created_at.desc())
+        .first()
+    )
+    if spark_run is not None and spark_run.measurements:
+        spark_overlay(
+            graph,
+            {"run_id": spark_run.run_id, "measurements": spark_run.measurements},
+            overlay,
+        )
+    cli_experiment = (
+        session.query(ExperimentRecord)
+        .filter(
+            ExperimentRecord.repo_url == repo_url,
+            ExperimentRecord.kind == "cli",
+            ExperimentRecord.status == "completed",
+        )
+        .order_by(ExperimentRecord.finished_at.desc())
+        .first()
+    )
+    if cli_experiment is not None:
+        cli_overlay(graph, {"id": cli_experiment.id, "runs": cli_experiment.runs}, overlay)
+    roll_up(graph, overlay)
+    return overlay

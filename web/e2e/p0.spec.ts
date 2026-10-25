@@ -82,11 +82,28 @@ test.describe("P0 — the Spark experience, from the browser", () => {
     await page.getByTestId("tab-Architecture").click();
     await expect(page).toHaveURL(/\/architecture$/);
 
-    await expect(page.getByTestId("components")).toBeVisible();
-    await expect(page.getByTestId("architecture-graph")).toBeVisible();
-    await expect(page.getByTestId("important-files")).toContainText("etl_job.py");
-    await expect(page.getByTestId("concepts")).toBeVisible();
-    console.log("  architecture rendered with components, flow, files and concepts");
+    // What it is comes first, then how it works, then its parts.
+    await expect(page.getByTestId("orientation")).toBeVisible();
+    await expect(page.getByTestId("repository-type")).not.toBeEmpty();
+    await expect(page.getByTestId("system-model")).toBeVisible();
+    await expect(page.getByTestId("analysis-details")).not.toHaveAttribute("open", "");
+    // Drilling into a part reveals its components; selecting one opens its
+    // evidence, and Ask RepoLab carries it to Ask.
+    await page.getByTestId("subsystem-card").first().click();
+    await expect(page.getByTestId("subsystem-view")).toBeVisible();
+    await expect(page.getByTestId("breadcrumb")).toBeVisible();
+    await page.getByTestId("architecture-node").first().click();
+    await expect(page.getByTestId("architecture-inspector")).toBeVisible();
+    await expect(page.getByTestId("source-references")).toContainText(".py");
+    await expect(page.getByTestId("ask-why")).toHaveAttribute("href", /\/ask\?node=/);
+    console.log("  architecture: orientation, system model, drill-down and inspector");
+
+    // Ask RepoLab opens with the component as one context chip, and the
+    // repository context beside the question.
+    await page.getByTestId("ask-why").click();
+    await expect(page.getByTestId("question-focus")).toContainText("Context:");
+    await expect(page.getByTestId("ask-context")).toBeVisible();
+    await expect(page.getByTestId("question-history")).toBeVisible();
 
     // -- Spark Playground ---------------------------------------------------
     await page.getByTestId("tab-Playground").click();

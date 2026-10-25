@@ -55,6 +55,13 @@ class Settings(BaseSettings):
     )
     redis_url: str = Field(default="redis://localhost:6379/0")
 
+    runtime_proxy_domain: str = "localhost"
+    """Live apps are served at ``rt-<runtime>-<service>.<domain>``. Browsers resolve
+    any ``*.localhost`` name to the loopback address, so locally no DNS is needed."""
+
+    runtime_proxy_origin_port: int = 8000
+    """The port the API is reached on, for building a live app's address."""
+
     @property
     def configured_models(self) -> dict[str, str | None]:
         """Model IDs by routing tier. Values are ``None`` when unset."""

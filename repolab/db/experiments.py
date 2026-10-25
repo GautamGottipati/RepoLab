@@ -23,7 +23,7 @@ from repolab.db.models import ExperimentRecord, ExperimentVariantRecord, Measure
 from repolab.experiments.cli.models import CliExperiment
 from repolab.experiments.experiment import Experiment
 from repolab.experiments.models import ExperimentStatus, VariantRun
-from repolab.questions.models import AnswerResult, Triage
+from repolab.questions.models import AnswerResult, ArchitectureFocus, Triage
 
 #: What ``experiments.kind`` may hold.
 KIND_PENDING = "pending"
@@ -246,8 +246,21 @@ def save_triage(session: Session, experiment_id: str, triage: Triage) -> None:
     record = session.get(ExperimentRecord, experiment_id)
     if record is None:
         return
+    previous = record.triage or {}
+    if triage.context is None and previous.get("context"):
+        # The context arrived with the question; triage must not lose it.
+        triage = triage.model_copy(
+            update={"context": ArchitectureFocus.model_validate(previous["context"])}
+        )
     record.triage = triage.model_dump(mode="json")
     session.flush()
+
+
+def question_context(session: Session, experiment_id: str) -> ArchitectureFocus | None:
+    """The architecture component a question was asked about, if it was."""
+    record = session.get(ExperimentRecord, experiment_id)
+    raw = (record.triage or {}).get("context") if record is not None else None
+    return ArchitectureFocus.model_validate(raw) if raw else None
 
 
 def save_answer(

@@ -58,14 +58,14 @@ class TestSavingAnIngestion:
         assert restored == result.manifest
 
     async def test_the_architecture_round_trips(self, session: Session, result) -> None:
-        from repolab.manifest.architecture import ArchitectureGraph
+        from repolab.architecture import load_graph
 
         ingestion = save_ingestion(session, result)
         session.commit()
 
-        restored = ArchitectureGraph.model_validate(ingestion.architecture.graph)
+        restored = load_graph(ingestion.architecture.graph)
         assert len(restored.nodes) == len(result.architecture.nodes)
-        assert restored.unsupported_nodes == []
+        assert all(node.is_supported for node in restored.nodes)
 
     async def test_the_evidence_round_trips(self, session: Session, result) -> None:
         from repolab.evidence.models import EvidenceBundle

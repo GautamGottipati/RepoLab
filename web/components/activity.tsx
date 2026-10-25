@@ -14,7 +14,7 @@
 
 "use client";
 
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 
 import { field, isNumber, isString } from "@/lib/events";
 import type { JobEvent } from "@/lib/types";
@@ -158,6 +158,67 @@ export function ActivityFeed({
           </span>
         </div>
       ))}
+    </div>
+  );
+}
+
+/**
+ * The agent activity sidebar. While the investigation runs, the live phases and
+ * feed are shown. Once it is done they fold into a one-line summary -- useful
+ * for trust, distracting while learning -- and expand on request. Nothing is
+ * dropped.
+ */
+export function AgentActivityPanel({
+  events,
+  done,
+  summary,
+}: {
+  events: JobEvent[];
+  done: boolean;
+  summary: { evidence: number; components: number; flows: number } | null;
+}) {
+  const [open, setOpen] = useState(false);
+  const phases = phasesFrom(events);
+  const expanded = !done || open;
+  return (
+    <div data-testid="agent-activity">
+      <h2 className="text-xs font-semibold uppercase tracking-wide text-neutral-500">Agent activity</h2>
+      {done && (
+        <div className="mt-3 rounded border border-neutral-200 p-3 text-xs dark:border-neutral-800" data-testid="activity-summary">
+          <p className="font-medium">✓ Repository analyzed</p>
+          {summary && (
+            <ul className="mt-1 text-neutral-600 dark:text-neutral-400">
+              <li>{summary.evidence} pieces of evidence</li>
+              <li>{summary.components} components discovered</li>
+              <li>
+                {summary.flows} major flow{summary.flows === 1 ? "" : "s"} identified
+              </li>
+            </ul>
+          )}
+          <button
+            type="button"
+            onClick={() => setOpen((v) => !v)}
+            aria-expanded={open}
+            data-testid="toggle-activity"
+            className="mt-2 underline underline-offset-2"
+          >
+            {open ? "Hide analysis details" : "View analysis details"}
+          </button>
+        </div>
+      )}
+      {expanded && (
+        <div data-testid="activity-details">
+          <div className="mt-3">
+            <PhaseTracker events={events} done={done} />
+          </div>
+          <p className="mt-3 text-xs text-neutral-400">
+            {phases.length} of {phases[0]?.total ?? 4} phases · {events.length} events
+          </p>
+          <div className="mt-2">
+            <ActivityFeed events={events} height="h-[28rem]" />
+          </div>
+        </div>
+      )}
     </div>
   );
 }

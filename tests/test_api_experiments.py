@@ -448,6 +448,60 @@ class TestTriagedQuestions:
         assert refused.status_code == 409
         assert enqueued["run"] == []
 
+    def test_a_structured_answer_reaches_the_client_whole(
+        self, client: TestClient, db: sessionmaker[Session]
+    ) -> None:
+        from repolab.db.experiments import save_answer
+        from repolab.questions.models import (
+            AnswerResult,
+            AnswerStep,
+            AnswerVisual,
+            ExplanationShape,
+            GroundedAnswer,
+            QuestionKind,
+            VerifiedAnswer,
+            VisualEdge,
+            VisualNode,
+        )
+
+        created = client.post(
+            "/experiments", json={"repo_url": REPO, "question": "How does the job read data?"}
+        ).json()
+        produced = GroundedAnswer(
+            answer="It reads a CSV.",
+            summary="The job reads its input with a reader.",
+            claims=[],
+            caveats=[],
+            shape=ExplanationShape.FLOW,
+            visual=AnswerVisual(
+                nodes=[VisualNode(id="a", label="Job"), VisualNode(id="b", label="Reader")],
+                edges=[VisualEdge(source="a", target="b", support="jobs/etl.py")],
+            ),
+            steps=[AnswerStep(title="Read", description="It reads.", sources=["jobs/etl.py"])],
+        )
+        with db() as session:
+            save_answer(
+                session,
+                created["experiment_id"],
+                AnswerResult(
+                    question="How does the job read data?",
+                    kind=QuestionKind.REPOSITORY,
+                    shape=ExplanationShape.FLOW,
+                    answer=VerifiedAnswer(answer=produced, not_established=["Reader → Disk"]),
+                    follow_ups=["Where is the reader configured?"],
+                ),
+            )
+            session.commit()
+
+        answer = client.get(f"/experiments/{created['experiment_id']}").json()["answer"]
+        assert answer["shape"] == "flow"
+        assert answer["follow_ups"] == ["Where is the reader configured?"]
+        assert answer["answer"]["not_established"] == ["Reader → Disk"]
+        laid_out = answer["answer"]["answer"]
+        assert laid_out["summary"] == "The job reads its input with a reader."
+        assert laid_out["visual"]["edges"][0]["support"] == "jobs/etl.py"
+        assert laid_out["steps"][0]["sources"] == ["jobs/etl.py"]
+
     def test_a_cli_experiment_is_approved_through_the_same_gate(
         self, client: TestClient, db: sessionmaker[Session], enqueued: dict
     ) -> None:
@@ -482,3 +536,77 @@ class TestTriagedQuestions:
         again = client.post(f"/experiments/{experiment.id}/approve", json={})
         assert again.status_code == 409
         assert len(enqueued["run"]) == 1
+
+
+CONTEXT: dict = {
+    "node_id": "step:jobs:join",
+    "label": "Join Customers",
+    "category": "transform",
+    "source_references": [{"path": "jobs/daily_sales.py", "start_line": 6}],
+    "relationships": ["Read Orders -data_flow-> Join Customers"],
+}
+
+
+class TestArchitectureContext:
+    """Ask Why from the Architecture page sends the component with the question."""
+
+    def test_the_context_is_stored_and_survives_triage(
+        self, client: TestClient, db: sessionmaker[Session]
+    ) -> None:
+        from repolab.db.experiments import question_context, save_triage
+        from repolab.questions.models import QuestionKind, Route, Triage
+
+        created = client.post(
+            "/experiments",
+            json={"repo_url": REPO, "question": "Why join here?", "context": CONTEXT},
+        ).json()
+        experiment_id = created["experiment_id"]
+
+        with db() as session:
+            save_triage(
+                session,
+                experiment_id,
+                Triage(
+                    kind=QuestionKind.REPOSITORY, reason="x", decided_by="rules", route=Route.ANSWER
+                ),
+            )
+            session.commit()
+            focus = question_context(session, experiment_id)
+
+        assert focus is not None and focus.label == "Join Customers"
+        state = client.get(f"/experiments/{experiment_id}").json()
+        assert state["triage"]["context"]["node_id"] == "step:jobs:join"
+
+    def test_an_oversized_context_is_refused(self, client: TestClient) -> None:
+        context = {**CONTEXT, "source_references": [{"path": f"f{i}.py"} for i in range(50)]}
+        response = client.post(
+            "/experiments",
+            json={"repo_url": REPO, "question": "Why join here?", "context": context},
+        )
+        assert response.status_code == 422
+
+    def test_the_level_and_subsystem_reach_the_answer(
+        self, client: TestClient, db: sessionmaker[Session]
+    ) -> None:
+        from repolab.db.experiments import question_context
+
+        context = {
+            **CONTEXT,
+            "node_id": "concept:scheduler",
+            "label": "Scheduler",
+            "category": "concept",
+            "level": "system",
+            "subsystem": "Core engine",
+            "directories": ["core/src/main/scala/org/example/engine/scheduler"],
+        }
+        created = client.post(
+            "/experiments",
+            json={"repo_url": REPO, "question": "What does it do?", "context": context},
+        ).json()
+        with db() as session:
+            focus = question_context(session, created["experiment_id"])
+        assert focus is not None and focus.level == "system"
+        described = focus.describe()
+        assert "the concept 'Scheduler'" in described
+        assert "'Core engine'" in described
+        assert "core/src/main/scala/org/example/engine/scheduler" in described

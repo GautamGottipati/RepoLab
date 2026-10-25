@@ -24,6 +24,10 @@ from sqlalchemy.orm import Session
 
 from api import deps
 from api.deps import get_session
+from repolab.architecture import load_graph
+from repolab.architecture.actions import NodeActions, concept_actions, node_actions
+from repolab.architecture.runtime import RuntimeOverlay
+from repolab.db.builds import load_builds
 from repolab.db.jobs import (
     count_events,
     create_job,
@@ -31,7 +35,12 @@ from repolab.db.jobs import (
     last_event_at,
     read_events_after,
 )
-from repolab.db.models import ArchitectureRecord, Job, RepoManifestRecord
+from repolab.db.models import (
+    ArchitectureRecord,
+    Job,
+    RepoManifestRecord,
+)
+from repolab.db.store import load_runtime_overlay
 from repolab.events import EventType, JobEvent, JobStatus, detect_stall
 from repolab.experiences.catalog import ExperienceCatalog, experiences_for
 from repolab.ingest.url import InvalidRepoUrlError, validate_repo_url
@@ -253,19 +262,28 @@ def _terminal_frame(job_id: str, cursor: int, job_status: JobStatus) -> str:
 
 
 class ArchitectureView(BaseModel):
-    """The architecture an ingestion produced.
+    """The architecture an ingestion produced, and what can be done with each part.
 
-    The graph is served as it was stored. Every node already carries the files
-    that justify it, which is what lets the screen show *why* a component is
-    claimed to exist rather than asserting a diagram.
+    The graph is served in the current schema whatever version stored it. Every
+    node already carries the source references that justify it, which is what
+    lets the screen show *why* a component is claimed to exist.
+
+    ``node_actions`` is decided here, deterministically: Ask is always possible;
+    Experiment only where RepoLab can really run this repository and the
+    component is one that run exercises.
     """
 
     job_id: str
+    repo_url: str
+    commit_sha: str
     generated_by: str
     node_count: int
     edge_count: int
     summary: str | None = None
     graph: dict[str, Any]
+    node_actions: dict[str, NodeActions] = Field(default_factory=dict)
+    concept_actions: dict[str, NodeActions] = Field(default_factory=dict)
+    """The same, for system-model concepts and subsystems (by their ids)."""
 
 
 @router.get("/{job_id}/architecture", response_model=ArchitectureView)
@@ -274,7 +292,48 @@ def job_architecture(
 ) -> ArchitectureView:
     """The architecture graph this job produced. 404 until it is ready."""
     job = _require_ingested(session, job_id, wanted="architecture")
+    record = _architecture_record(session, job)
+    graph = load_graph(record.graph)
 
+    commit_sha = record.ingestion.commit_sha if record.ingestion is not None else ""
+    manifest_record = (
+        session.query(RepoManifestRecord)
+        .filter(RepoManifestRecord.ingestion_id == job.ingestion_id)
+        .one_or_none()
+    )
+    manifest = RepoManifest.model_validate(manifest_record.manifest) if manifest_record else None
+    artifacts = load_builds(session, job.repo_url, commit_sha) if commit_sha else []
+
+    actions = node_actions(graph, manifest, artifacts)
+    return ArchitectureView(
+        job_id=job_id,
+        repo_url=job.repo_url,
+        commit_sha=commit_sha,
+        generated_by=graph.generated_by.value,
+        node_count=len(graph.nodes),
+        edge_count=len(graph.edges),
+        summary=graph.summary or record.summary,
+        graph=graph.model_dump(mode="json"),
+        node_actions=actions,
+        concept_actions=concept_actions(graph, actions),
+    )
+
+
+@router.get("/{job_id}/architecture/runtime", response_model=RuntimeOverlay)
+def job_architecture_runtime(
+    job_id: str, session: Annotated[Session, Depends(get_session)]
+) -> RuntimeOverlay:
+    """Measurements from real runs of this repository, placed on its components.
+
+    Empty until something has run. Nothing here is estimated: each value names
+    the run that produced it.
+    """
+    job = _require_ingested(session, job_id, wanted="architecture")
+    graph = load_graph(_architecture_record(session, job).graph)
+    return load_runtime_overlay(session, job.repo_url, graph)
+
+
+def _architecture_record(session: Session, job: Job) -> ArchitectureRecord:
     record = (
         session.query(ArchitectureRecord)
         .filter(ArchitectureRecord.ingestion_id == job.ingestion_id)
@@ -282,15 +341,7 @@ def job_architecture(
     )
     if record is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "architecture was not recorded")
-
-    return ArchitectureView(
-        job_id=job_id,
-        generated_by=record.generated_by,
-        node_count=record.node_count,
-        edge_count=record.edge_count,
-        summary=record.summary,
-        graph=record.graph,
-    )
+    return record
 
 
 @router.get("/{job_id}/experiences", response_model=ExperienceCatalog)

@@ -1,6 +1,6 @@
 # RepoLab Progress
 
-Last updated: 2026-10-19 (Ask RepoLab triage; CLI experiments)
+Last updated: 2026-10-24 (Experiences: what can I actually do with this software?)
 
 ---
 
@@ -1782,6 +1782,784 @@ non-key column with an index), validated and stopped at the approval gate.
 **Not yet run end to end in a browser**: approving the CLI experiment starts a
 4 GB node. The cached Cassandra builds predate the heap cap in
 `repolab/builds/cassandra.py`, so rebuild from the Learn tab before approving.
+
+### Phase 15 — A generic Architecture experience
+
+**Before:** the architecture was entry points, config files, compose services and
+dependency names, with every entry point joined to every dependency — edges that
+were never detected. Nodes were files; there was no flow, no summary, no
+static/inferred/measured split, no link to Ask, and the Super enrichment never
+ran in the web worker.
+
+**Now** (`repolab/architecture/`, spec `docs/design/03-architecture.md`):
+
+- **Generic model (schema v2):** 25 categories, 11 edge types, `static`/`inferred`
+  provenance on every fact, primary flows, entry points, important files with
+  roles, default view, completeness and gaps. Stored v1 graphs convert on read.
+- **Deterministic analyzers** for roles, not frameworks: HTTP APIs (named by
+  resource), servers (linked to routers through router modules), frontends,
+  CLI parsers/commands/interactive shells, data pipelines (stage functions in
+  call order, or operations), workflows (DAG → tasks → declared dependencies),
+  storage/queues/caches/models (read vs write decided per function), daemons
+  and workers, libraries, configuration. Tooling, docs, examples and CI are
+  skipped; build/lint npm scripts are not entry points.
+- **Adapters** (Spark, web frameworks, workflow engines) only set subtype and
+  technology.
+- **Nemotron Super** (`Purpose.REPO_ARCHITECTURE`, once per investigation, in the
+  worker): names, descriptions, runtime significance, groups, cited relationships,
+  flows, summary — all marked inferred. Validation refuses invented components,
+  files, lines, edge types and measurement-shaped numbers, folding a small graph,
+  or a flow across unrelated components, and counts each refusal.
+- **API:** `node_actions` (Experiment only where the Spark or CQL backend
+  exercises the component, with the reason otherwise; suggested questions from
+  the component's own values) and `GET /jobs/{id}/architecture/runtime`
+  (measured only, from stored Spark runs and completed CLI experiments, each
+  value naming its run).
+- **Ask integration:** `AskQuestion.context` carries the component; the answer
+  agent reads its files first; the CLI design prompt names it.
+- **UI:** layered SVG graph (inferred edges dashed, flows emphasised, keyboard
+  selectable), node inspector (Static / Inferred / Measured, sources linked to the
+  commit on GitHub, Open code, Ask why, Experiment only when available), important
+  files that highlight their components, partial state, measured overlay.
+
+**Verified live:**
+- `AlexIoannides/pyspark-example-project` through the real worker with Super:
+  `etl_job → Spark ETL Pipeline → Extract → Transform → Load`, Nemotron names
+  and summary marked inferred, Experiment offered on pipeline steps only, and the
+  runtime overlay showing a real earlier run (`spark run 83e237c0`: 9.1 s, 404
+  tasks), with the note that stage call sites point at RepoLab's driver. Ask why
+  on the transform step carried its context; the answer read `jobs/etl_job.py`
+  first and every claim verified.
+- Static analysis on `apache/cassandra`: `cqlsh → interactive shell → cqlsh CLI →
+  Cassandra`, `CassandraDaemon → cassandra.yaml`, system overview.
+- Static analysis on `fastapi/full-stack-fastapi-template`: browser → React
+  frontend, HTTP server → five APIs through `api/main.py`; PostgreSQL's link
+  through the ORM is reported as a gap rather than guessed.
+
+**Tests:** `tests/test_architecture_generic.py` (Spark, web/API, CLI, workflow,
+library, hybrid, unknown fixtures, size cap, real-repository regressions),
+`tests/test_architecture_synthesis.py`, `tests/test_architecture_actions.py`, API
+cases. Web: Vitest + Testing Library (`npm test`), 18 tests for graph, inspector,
+links, Ask URL, Experiment gating, important files, partial state and the
+measured-only overlay. 1,806 backend tests pass; `tsc`, ESLint and ruff clean.
+
+**Not done:** the Data Flow / Services / Dependencies / Runtime tab views (the
+model supports them). `next build` and the Playwright e2e run were not executed
+in this session. Frontend → API links are only drawn from literal `fetch`/client
+URLs, so generated API clients are not linked statically.
+
+### Phase 16 — Architecture, from "what is this?" to source lines
+
+**Before:** the Architecture page opened on whatever components the analyzers
+matched first. On `apache/spark` that meant ML wrapper "pipelines", Beeline, a
+PySpark shell and Kafka, under a header saying "Primary: cli". It was evidence-correct,
+but a newcomer could not tell what Spark is or how its parts fit.
+
+**Now** (spec `docs/design/03-architecture.md`, schema v3, v2 graphs still load):
+
+- **Level 0, what the repository is** (`repolab/architecture/understanding.py`):
+  - **Fact sheet.** README title and opening, in Markdown, AsciiDoc or setext.
+    Prose is taken only under the title or an "about" section. Package
+    descriptions (pyproject, setup, package.json, pom, Cargo) are added, each
+    with its line.
+  - **Repository type**, kept separate from interaction surfaces. It is scored
+    from structure and the project's own self-description:
+    - decided deterministically when one kind clearly wins;
+    - otherwise Super chooses *from the scored candidates only*;
+    - "hybrid" requires two structural application kinds.
+- **Level 2, subsystems** (`repolab/architecture/subsystems.py`):
+  - Taken from declared modules (Maven, Gradle, sbt, npm/pnpm/lerna workspaces,
+    Cargo, go.work), else source directories, descending through a wrapper.
+  - At most 12; the rest fold into a listed "Other modules".
+  - Membership is by path and never by a model; every component gets one.
+  - Each subsystem carries file counts, languages, its main areas and
+    starting points.
+  - Each also has a deterministic `learning_importance` with its signals
+    recorded. Detector hits are deliberately down-weighted.
+- **Level 1, system model:**
+  - 3–8 concepts with plain labels and the project's own term ("Internal name").
+    Each must cite a subsystem, component, real path or line, or a retrieved
+    documentation URL.
+  - Links are derived from component edges that cross concepts, or cited by Super.
+  - Without a model, the concepts are the top subsystems, or the components in
+    a small repository.
+- **Walkthroughs and learning path:**
+  - A walkthrough follows a request, job, command or run, only along existing
+    links. A component flow inside one part of a larger repository is scoped to
+    that part, so it shows on drill-down, not on the overview.
+  - The learning path points only at things that exist.
+- **Super orientation pass:** once per investigation, after the component pass.
+  Everything it adds is marked inferred, and refusals are counted. The worker
+  passes it the official documentation the investigator actually retrieved.
+- **API:**
+  - `concept_actions`: Ask always. Experiment only through a member component
+    that has one, and `needs_environment` marks when only a build is missing.
+  - The runtime overlay adds `by_group`: the same measured values, attributed
+    to the containing concept and subsystem, never combined.
+- **Ask:** the focus gains `level`, `subsystem` and `directories`, and works for
+  concepts and subsystems as well as components.
+- **UI:**
+  - **Page order:** orientation (name, type, plain explanation, "How do you
+    know?", a first question) → "How does it work?" concept graph → subsystem
+    cards → "Follow a …" → "New to this project?" → "Where should I start?"
+    (advanced files collapsed) → analysis details (collapsed, including
+    refusals and gaps).
+  - **Drill-down:** a subsystem view with a breadcrumb, its component graph,
+    starting points and walkthroughs. The state lives in `?subsystem=&node=`.
+  - **Inspector:** meaning first (What is this? / Why does it matter? / Role /
+    How does it connect? / Where is it implemented?), then evidence and
+    Static / Inferred / Measured.
+  - **Experiments:** offered only when available; otherwise silent, apart from
+    one quiet "after building the environment" line.
+  - **Agent activity:** the sidebar folds into "✓ Repository analyzed · N pieces
+    of evidence …" once the job completes, with the full feed one click away.
+  - **Older graphs** render as the component view, with a note to investigate
+    again.
+
+**Verified** (local clones; the architecture build was run directly, not through the worker):
+- **`apache/spark` with live Nemotron Super:**
+  - "Apache Spark — Unified analytics engine for large-scale data processing", with a
+    plain explanation, purpose and users.
+  - 12 parts named by Super (Spark SQL, MLlib, Core Engine, Python API,
+    Cluster Resource Management…) from the Maven modules.
+  - Concepts Job Submission → Task Scheduler → Data Transformation / Machine
+    Learning Modeling, with cited links and a system walkthrough.
+  - **No ML wrapper appears anywhere on the overview.** They appear only under
+    MLlib, whose drill-down walkthrough follows the wrapper pipeline.
+- **Without a model,** Cassandra ("Apache Cassandra is a highly-scalable
+  partitioned row store", from its AsciiDoc README; distributed system /
+  database candidates) and the FastAPI full-stack template (web application,
+  frontend / backend / packages; no description invented for a README that has
+  none) both produce sensible levels.
+
+**Fixed along the way:**
+- A Java package `org/example` was treated as an examples folder. Peripheral
+  directories are now checked only above a `src/main|test` root.
+- Root README and build files are always read first, so a 14,000-file
+  repository still gets its own description.
+- The component pass's token budget was raised to 8,192: on Spark,
+  reasoning used all 4,096 before any JSON was written.
+
+**Tests:**
+- **Backend:** `tests/test_architecture_levels.py` (40 tests) covers every
+  build-file style, the wrapper descent, folding, importance, starting points,
+  quoted understanding, the type rules per fixture, bounded and backed concepts,
+  learning-path targets, the multi-module acceptance case, every refusal of the
+  orientation pass, concept actions, the measured roll-up, README formats and
+  retrieved docs.
+- **API:** tests cover concept actions and `by_group`, and the Ask level and
+  subsystem.
+- **Web:** `guided.test.tsx` covers the orientation before the graph, ≤8 concepts,
+  card → drill-down → breadcrumb → component → source, URL restore, meaning
+  before evidence, Experiment gating, the roll-up, collapsed details and the
+  activity panel. Legacy tests are kept for v2 graphs.
+- **Totals:** 1,848 backend tests and 36 web tests pass; ruff, `tsc` and
+  ESLint are clean.
+
+**Not done:**
+- `next build`, because the user's dev server was using `.next`.
+- The Playwright e2e run; `p0.spec.ts` is updated to the guided flow but has not
+  been run.
+- A full re-investigation through the worker, which passes the investigator's
+  documentation, was not run live.
+- On Spark, Super cited the R wrapper file as evidence for the MLlib concept.
+  It is real evidence, but a poor first file for a beginner.
+
+### Phase 17 — Ask RepoLab, answers that teach
+
+**Before:** an answered question was a prose paragraph, then claims grouped by
+kind, then Measurements / Code / Logs / Official Docs tabs with 60-line code
+blocks. It was grounded, but the reader met the evidence before forming a
+mental model. The answer agent never saw the architecture the investigation had
+already mapped.
+
+**Now** (spec `docs/design/05-ask.md`; no new endpoint, no migration, no new
+model call):
+
+- **Explanation shape** (`repolab/questions/triage.py`):
+  - `explanation_shape()` reads the question's phrasing: flow, execution,
+    definition, why, comparison, location, architecture or debugging.
+  - It sits next to the existing kind/route triage, and is not a second
+    classifier.
+  - When the phrasing is ambiguous, the answer's own Super call picks a shape.
+- **Structured answer** (`repolab/questions/models.py`): `GroundedAnswer` gains
+  - `summary`
+  - `shape`
+  - `visual` (nodes, edges with `support`)
+  - `steps` with sources
+  - `sections` with a basis (evidenced, inferred or unknown)
+  - `comparison`
+  - `locations`
+  - `follow_ups`
+
+  Every field defaults, so stored answers still load. `AnswerClaimKind` gains
+  `measured`.
+- **Architecture context** (`repolab/questions/context.py`):
+  - **Slice.** The worker loads the stored graph and the runtime overlay. A
+    bounded slice (≤12 components, ≤16 relationships, each with an
+    `edge:a->b` id) reaches the prompt: the focus, the components the question
+    names, and their neighbours. Its already-excerpted lines join the evidence.
+  - **Runtime.** Measured values come only from the overlay of recorded runs.
+  - **Follow-ups.** Next questions fall back to the components' own suggested
+    questions.
+- **Reading the next hop** (`repolab/questions/investigation.py`):
+  - The read-only investigation now also reads the local modules its files
+    import: a route's `require('../models/post')`, `from .models import`. It
+    goes through the same audited `read_file` tool.
+  - Ranked by the question's terms, ≤6 files.
+- **Verification** (`repolab/questions/layout.py`, deterministic):
+  - **Arrows.** An arrow is drawn only when it cites a real file or a slice
+    relationship that joins the same components. Otherwise it is listed as
+    *not established*, never drawn.
+    - "inferred" arrows are kept but dashed.
+    - A diagram that is mostly inference, or has no evidenced arrow, is dropped.
+    - Diagrams are capped at 8 boxes.
+  - **Citations.**
+    - Step, section and code-map paths must exist.
+    - A real path wrapped in words is normalised; anything else is removed and
+      counted.
+    - "Evidenced" without a source is relabelled "inferred".
+    - Comparison cells without support become "not established".
+  - **Numbers.** A `measured` claim needs a recorded measurement. A unit-bearing
+    number that appears in no evidence excerpt is flagged.
+- **API:**
+  - `ExperimentState.answer` carries the new fields. `ArchitectureFocus` is
+    unchanged.
+  - The runtime overlay loader moved to `repolab/db/store.py`, shared by the
+    API and the worker.
+- **UI** (`components/answer-view.tsx`, `ask-context.tsx`, `lib/ask.ts`):
+  - **Question box.** A `Context: X ×` chip, "Ask about X", and 2–4 suggested
+    questions from the selected component, or from the repository's
+    recommended start.
+  - **Answer, in order.** It ends with "Continue exploring" follow-ups, which
+    ask through the same flow.
+    1. The simple answer, large.
+    2. A vertical diagram that scales to its column, with dashed inferred
+       arrows and a "could not establish" note.
+    3. For other shapes: a code map, or a comparison table.
+    4. Numbered "How it works" steps with 📄 source chips.
+    5. Details, with basis badges, and caveats.
+    6. **Sources**: `Code N · Docs N · Runtime N`, a "✓ Based on repository code"
+       or "● Includes measured runtime evidence" line, and a collapsed list.
+       - An item expands to about 11 lines around the cited line.
+       - "Show all evidence" opens the existing claims (now labelled
+         `static · repository` / documented / inferred / measured) and the
+         evidence tabs.
+  - **Code drawer.** On the right, or a bottom sheet on mobile: the cited range,
+    "Why this matters", and a link at the commit.
+  - **Sidebar.** The workspace's right column gets a slot. Ask fills it with
+    the repository context (role, used by, uses, implemented with, important
+    files, the components the answer drew) and a collapsed History.
+  - **Agent activity.** It stays below, collapsed once analysed. While an
+    answer is being worked out, one status line shows, with the raw feed
+    behind a toggle.
+
+**Verified live** (through the real worker task, with Nemotron Super and Nano):
+- **Acceptance (`GautamGottipati/eventApp`).** Asked *"How does the Express
+  backend server, Posts API, Registration API, and User API use MongoDB?"*
+  - Triaged as flow.
+  - Diagram: Express backend server → Posts / Registration / User API →
+    Post / Registration / User model → MongoDB.
+  - Every arrow is cited to an architecture relationship or a file
+    (`backend/app.js`, `backend/routes/*.js`, `backend/models/post.js`,
+    `backend/models/user.js`). Nothing dropped; no unsupported claims.
+  - Five steps, and four follow-ups.
+- **Two bugs found on the way, both fixed and tested:**
+  - Super cited relationships by copying the whole map line
+    (`edge:a->b (calls, static)`).
+  - Route files were read, but the models they import were not.
+- **Generic check (`pyspark-example-project`).** *"Where is the Spark session
+  created and configured?"*
+  - Triaged as location.
+  - Code map: `jobs/etl_job.py` → `dependencies/spark.py` →
+    `configs/etl_config.json`.
+
+**Tests:**
+- **Backend:** `tests/test_question_layout.py` (26 tests) has one scripted
+  answer per shape: flow, execution, definition, why, comparison, location and
+  general. It also covers:
+  - an unsupported arrow (not drawn, reported)
+  - a relationship cited between the wrong components
+  - inferred arrows
+  - no complete-looking flow without evidence
+  - mostly-guess diagrams
+  - measured claims with and without runtime evidence, and invented versus
+    quoted numbers
+  - the slice: bounded, focus concepts, reaching the prompt
+  - import following
+  - citation normalisation
+  - old stored answers
+  
+  Triage gains 15 shape cases; the API test round-trips a structured answer.
+- **Web:** `ask.test.tsx` (25 tests) covers:
+  - the answer first
+  - the diagram (dashed inference, not-established note, scales to its column)
+  - code map, comparison, steps and the drawer
+  - section basis
+  - sources (counts, collapsed, small range, full evidence, runtime line)
+  - partial evidence
+  - follow-ups, the context chip and suggestions
+  - the sidebar for two components and for none
+  - history collapsed
+  - small-screen containment
+- **Totals:** 1,890 backend tests and 61 web tests pass; ruff, `tsc` and
+  ESLint are clean.
+
+**Not done / known issues:**
+- `next build` and the Playwright run, for the same reason as Phase 16. The e2e
+  spec gains a check of the context chip and sidebar.
+- Model behaviour varies between runs. One acceptance run drew no model layer:
+  verification kept only what was cited, and nothing was invented. Another
+  cited a route file for "Registration model → MongoDB" because the model file
+  had not been read within the import budget. That is real, but weaker,
+  evidence.
+- The live checks added five answered questions to the local database's
+  history for eventApp and pyspark-example-project.
+
+### Phase 17b — Experiences page, and what a full-stack JS repository is
+
+**Reported:** eventApp (an Angular frontend and an Express backend) showed
+"API · CLI (weak signal) · 0 runnable here" in red, with raw scores and signal
+names, and nothing to do next.
+
+**Detection fixes** (generic, `repolab/ingest/detectors/`, `repolab/classify/`):
+- **Frontend applications.**
+  - Angular, SvelteKit, Nuxt, Remix and Gatsby are recognised as dependencies,
+    and Svelte as a weak signal.
+  - A new `frontend_app` signal covers code that bootstraps a browser app:
+    `bootstrapModule`, `createRoot`, `createApp().mount`.
+- **Bundled files ignored.** Minified or hash-named output is no longer scanned
+  for signals. A checked-in Angular build had matched the daemon pattern.
+- **Daemon signals narrowed.**
+  - JavaScript's `fn.bind(this)` no longer counts. Only a socket bound to an
+    address, or `.listen(<port>)`, does.
+  - File names containing "server" or "service" count only on scripts and
+    executables (`auth.service.ts` is dependency injection). "Daemon" in any
+    file name still counts.
+- **npm scripts.**
+  - A script is a server (by name: start, dev, serve…; or by command: nodemon,
+    vite, next dev…), a test suite, or a new `tooling` kind.
+  - Only a package's `bin` counts as its command line.
+  - A `bin/` file that a server script runs (`nodemon ./bin/www`) is the
+    server's launcher, not a CLI.
+- **Ports.** A test runner's port (`karma.conf.js` and similar) is not API
+  evidence.
+- **Result on eventApp:** Web application (Angular, 0.80, primary) + HTTP API
+  (Express, 0.80), hybrid, and no CLI. Before, it was API 0.90 + CLI 0.45.
+- **Unchanged elsewhere:** Cassandra and Spark keep their surfaces. The FastAPI
+  template now also shows its React web UI.
+
+**Page** (`app/r/[jobId]/experiences/page.tsx`):
+- "Ways to use this repository", with one plain summary sentence.
+- Evidence strength in words; the raw rationale is collapsed.
+- Readable "Why RepoLab thinks so" phrases, and evidence linked at the commit.
+- When nothing is runnable: Explore the architecture, and Ask with the
+  repository's first question.
+- The fixed not-runnable sentence stays, in muted rather than warning colours.
+- The catalog adds `meaning`, `signals` and `strength`.
+
+**Tests:**
+- `tests/test_surface_precision.py` (7 tests): the full-stack fixture, npm
+  script kinds, bundles and binding, a real `bin/` command and a Daemon class
+  still count, and readable signals.
+- The page's own test (4 tests).
+- 1,897 backend and 65 web tests pass.
+
+**To see it:** stored manifests keep their old surfaces until the repository is
+investigated again. The page's wording applies immediately.
+
+### Phase 18 — Live experiences: a repository's web app and API, running
+
+**Diagnosis (before):** a detected Web or API surface stopped at the
+experience catalog, because no adapter existed. Had it got further, it would
+still have failed at each later step:
+
+- `candidates_for` knew only Spark and Cassandra;
+- nothing read `package.json` scripts or ports;
+- containers published no ports and had no network policy;
+- there was no HTTP health check and no proxy.
+
+So every web and API card said "no experience for this kind of surface".
+
+**Now** (spec `docs/design/08-experiences.md`, "Live experiences"):
+
+- **Detected / runnable / running are separate in code.**
+  - *Runnable* means a `RuntimePlan` service exists for the surface
+    (`catalog._why_not`, adapter `LiveAppExperience`).
+  - *Running* means built, started, listening on a reachable address, and
+    answering HTTP through the sidecar (`repolab/runtime/launcher.py`).
+- **`RuntimePlan`** (`repolab/runtime/plan.py`, `node.py`, `scan.py`) is
+  computed during investigation and stored on `RepoManifest.runtime`. Planning is
+  deterministic, and no model is involved.
+  - **Services:** one per `package.json` that has a server script, in its own
+    directory, so monorepos give several services.
+  - **Install:** follows the lockfile (npm ci / yarn / pnpm frozen).
+  - **Node version:** engines → `.nvmrc` → lockfile version, else LTS. Inferred
+    values are labelled.
+  - **Start:** the repository's own script, plus bind flags for Angular CLI,
+    Vite and Next (`--host 0.0.0.0`; Angular also gets `--disable-host-check`),
+    otherwise `PORT`/`HOST` env.
+  - **Port, in order of evidence:** the script's flag → `PORT || n` or
+    `listen(n)` in the entry file (even an extensionless `bin/www`) →
+    Dockerfile `EXPOSE` → a framework default (inferred) → a runtime discovery
+    fallback.
+  - **Routes:** Express mount prefixes are resolved
+    (`app.use('/events', require('./routes/events'))` + `router.get('/api/posts')`
+    → `GET /events/api/posts`), each with its file:line.
+  - **Environment variables:** generated (PORT, HOST, NODE_ENV), secret (an
+    ephemeral random value at launch, never stored or logged), dependency, or
+    required (a warning). `.env` is never read.
+  - **Dependencies** (MongoDB / PostgreSQL / Redis):
+    - `provisionable` when the code reads the URL from an env var;
+    - `external_required` for a hard-coded external URI (credentials redacted,
+      never used, and no excerpt kept);
+    - `unsupported` for a hard-coded localhost.
+  - **Frontend warnings:** a frontend calling a fixed `http://localhost:<port>`
+    is warned about with evidence. Frontend API-base vars (`VITE_*API*`, etc.)
+    are set to the backend's live origin.
+  - **Commands:** every command must match an allowlist before anything runs.
+- **Execution** (`repolab/runtime/backend.py`), on local Docker, which is the
+  "VMEnvironment" path. Repository code runs only in containers:
+  - **Build:** a disposable container on Docker's default network, so the
+    registry is reachable; installs run as the unprivileged `node` user. It is
+    committed and cached per repo, commit, service and adapter version.
+  - **Run:** a per-runtime `--internal` network with no egress and no host.
+    Measured: DNS fails, and `host.docker.internal`, the gateway and RepoLab's
+    Postgres are unreachable. Limits: `--cap-drop ALL`, no-new-privileges,
+    `--pids-limit`, `--memory`, `--cpus`, no mounts, env via `--env-file`.
+  - **Expose:** a RepoLab `alpine/socat` sidecar per service, published on
+    127.0.0.1 only and forwarding to exactly that service's port.
+  - **Port and health:** found by reading `/proc/net/tcp*`; a localhost-only
+    bind is its own evidenced failure. Health = an HTTP response to an evidenced
+    route or `/`.
+  - **Databases:** provisioned on the same network (`mongo:7`,
+    `postgres:16-alpine`, `redis:7-alpine`), with readiness probes.
+  - **Failure states,** each with its reason, log tail, evidence and next step:
+    `BUILD_FAILED`, `START_FAILED`, `HEALTH_CHECK_FAILED`, `DEPENDENCY_MISSING`,
+    `PORT_NOT_FOUND`, `UNSUPPORTED`, `TIMEOUT`.
+- **Orchestration:**
+  - The launch runs as an RQ job (`worker/runtime_tasks.py`, `start_runtime` /
+    `stop_runtime` / `reap_idle_runtimes`). It re-plans from the cloned commit
+    and emits events on the job stream.
+  - State is held in a new `runtimes` table (migration `b2d4f6a8c0e1`).
+  - The API enqueues an idle reap every 10 minutes; a runtime idle for 30 minutes
+    is stopped. The API never calls Docker.
+- **API** (`api/routes/runtimes.py`):
+  - `GET/POST /jobs/{id}/runtime`: start is an explicit user action, and a
+    second start returns the active runtime.
+  - `GET/DELETE /runtimes/{id}`.
+  - `POST /runtimes/{id}/request`: the explorer.
+    - It runs server-side, with a bounded method, path and body; `//`, schemes
+      and backslashes are refused.
+    - It only reaches running services.
+    - A timeout names the plan's evidenced blocker, as the expected reason.
+- **Proxy** (`api/runtime_proxy.py`):
+  - `rt-<runtime>-<service>.localhost:8000` is routed by Host header to that
+    service's sidecar port only. Anything else is a 404, and RepoLab's own
+    routes are unreachable on those hosts.
+  - HTTP is streamed, and WebSocket is relayed for dev-server reload.
+  - `Set-Cookie` is made host-only.
+- **UI** (`components/live-experience.tsx`, Experiences page), "Run it in RepoLab":
+  - **Before starting:** the plan per service (runtime with its reason, install,
+    start, port with its source, and "(inferred)" labels), the dependencies with
+    their state, and the warnings.
+  - **Start application,** then ✓ / → / ○ / ✗ progress from the event stream,
+    with collapsible logs.
+  - **Web, ● LIVE:** an iframe preview plus Open application.
+  - **API, ● LIVE:** the base URL, the declared endpoints with file:line, and a
+    request form showing the real response.
+  - **Failure:** what succeeded, the reason, evidence links at the commit, the
+    next step and the logs.
+
+**Acceptance: `GautamGottipati/eventApp`, real, not faked.** It was
+re-investigated, then launched through `worker.runtime_tasks.start_runtime` on
+Docker.
+
+| Service | Plan | Result |
+|---|---|---|
+| `backend` (HTTP API) | `backend/`, node:14 (lockfile v1, inferred), `npm ci`, `npm run start`, port 3000 from `PORT \|\| 3000` in `backend/bin/www:15` | `npm ci` 19 s (bcrypt compiled from source), listening `:::3000`, `GET /` → **200**, **● LIVE** |
+| `event-app` (Web, Angular 9) | `./`, node:14, `npm ci`, `npm run start -- --host 0.0.0.0 --port 4200 --disable-host-check`, port 4200 (Angular default, inferred) | `npm ci` 48 s, listening `0.0.0.0:4200`, `GET /` → **200**, **● LIVE** |
+
+Through RepoLab's proxy:
+
+- **Pages load.** Both origins serve the EventApp page, including the backend's
+  1.3 MB committed Angular bundle.
+- **DB-backed routes fail, as the plan predicted.** `GET /events/api/posts` and
+  `POST /user/api/login` time out. The app's own log says `Connection Failed`: its
+  hard-coded external MongoDB (`backend/app.js:19`) is unreachable without
+  egress, and its committed credentials are never used. The explorer says this,
+  citing that line.
+- **The frontend's data calls cannot work in RepoLab.** They target the
+  hard-coded `http://localhost:3000` (`src/app/auth.service.ts:41`,
+  `events.service.ts:22` …). This is shown as a warning, and source is not
+  rewritten.
+- **Isolation, inspected in the running container:** user `node`,
+  `CapDrop=[ALL]`, pids 512, 3 GB, no port bindings, no egress, host
+  unreachable.
+
+**Tests** (all offline except the opt-in one):
+
+- `test_runtime_plan.py` (29 tests): Express ports and routes, package managers,
+  Node versions, dev-server bind flags, script ports, build-before-start,
+  monorepo services, provisionable / external (redacted) / localhost databases,
+  the frontend localhost warning, secret classification, unplanned reasons and
+  the allowlist.
+- `test_runtime_launch.py` (22 tests, fake backend):
+  - success: an Express API, a web app with its backend wired, multiple ports,
+    a port found at run time, a cached install, ephemeral secrets;
+  - databases: MongoDB provisioned, a database that never becomes ready, an
+    external one;
+  - failures: build failure, timeout, start failure, a localhost-only bind,
+    nothing listening, health failure, partial failure, an allowlist refusal, a
+    backend that cannot hold a server (Nebius);
+  - cleanup by stop, and `/proc/net` parsing.
+- `test_api_runtimes.py` (18 tests):
+  - start and stop, and an origin given only when running;
+  - the proxy with a real upstream (HTML, JSON bodies, host-only cookies);
+    unknown, unlisted or other-domain hosts → 404; stopped → 404; RepoLab routes
+    unreachable;
+  - explorer limits, and the timeout explanation.
+- `test_runtime_docker.py` (opt-in, `-m docker`): a real Express + MongoDB app
+  planned, installed, run on the no-egress network next to a provisioned
+  MongoDB, health-checked, and called through the proxy (MongoDB answered),
+  with cleanup verified.
+- **Web:** `live.test.tsx` (7 tests) covers the plan before start, starting only
+  on request, progress marks, the live iframe and origin, the explorer request
+  and response, no LIVE without an origin, failure with evidence and logs, and
+  stop. `test_experience_catalog.py` now states that web/API have an adapter but
+  are not runnable without a plan.
+- **Totals:** 1,966 backend + 72 web tests pass; ruff, `tsc` and ESLint are
+  clean; the opt-in Docker test passes.
+
+**Supported in this slice:** Node.js services started by a `package.json`
+script: Express (or Koa, Fastify, Hapi, Nest) APIs; Angular CLI, Vite, Next.js
+and CRA frontends; npm, yarn and pnpm lockfiles; ephemeral MongoDB, PostgreSQL
+and Redis for code that reads its URL from the environment.
+
+**Known limitations / what remains:**
+
+- **Install-time egress.** It is open, as it already is for Spark and Cassandra
+  builds, so `postinstall` scripts run with network access, as the unprivileged
+  user. A registry-only egress proxy would close this.
+- **Nebius.** It cannot host a live service: ConTree runs one command per
+  immutable image, with no long-lived process or inbound port, and execution on
+  this account is `ForbiddenError`.
+  - The adapter refuses such a backend (`long_running=False`, tested).
+  - There is no meaningful real Nebius smoke test to add.
+- **Local origins only.** Live origins use `*.localhost`. A deployment needs a
+  wildcard domain (`RUNTIME_PROXY_DOMAIN`) and TLS.
+- **Not yet supported:**
+  - Python, Java and Go services: the plan models are runtime-agnostic, so
+    each needs its own adapter.
+  - Docker Compose.
+  - OpenAPI ingestion.
+  - Root-level npm workspaces, where a package has no lockfile of its own.
+- **Frontend-to-backend calls.** A frontend calling a fixed `localhost` URL cannot
+  reach its backend in RepoLab (eventApp). Only env-configurable bases are wired.
+- **Dev servers.** They run in development mode. Angular 9's `ng serve` worked on
+  the inferred Node 14; older toolchains on newer inferred Node versions may
+  fail, and say so.
+- **Cleanup on restart.** Live runtimes are stopped by Stop or the 30-minute idle
+  reaper. A crashed worker can leave containers (labelled `repolab.runtime=1`);
+  nothing sweeps them at startup yet.
+
+### Phase 19 — Experiences, redesigned around "experience the software"
+
+**Before:** the Experiences tab listed detected *surfaces*. On `apache/spark` it
+showed "CLI playground · Notebook · Spark data playground — 3 detected, 0
+runnable", because:
+
+- the CLI had no build ladder;
+- the data playground was `NOT_PRIMARY` and only knew Spark *job* repositories;
+- the notebook surface had no adapter.
+
+Nothing modelled "this repository *is* the runtime".
+
+**Now** (spec `docs/design/08-experiences.md`):
+
+- **Model** (`repolab/experiences/model.py`). An `ExperienceDefinition` is an
+  action, not a surface. Each one has:
+  - a title, plus what you'll do / learn / notice;
+  - a type (15 types modelled, extensible);
+  - **four states:** detected → supported → runnable → running;
+  - runtime **options**, each with its reality and strategy:
+    - realities: `real_repository` / `official_runtime` / `mini_lab`;
+    - strategies (the fallback rung, always recorded): cached / repository
+      container / source build / official release / partial / Mini Lab / existing;
+  - evidence-backed starter actions, with their source: README, examples,
+    routes, or RepoLab's own (labelled).
+- **Discovery** (`repolab/experiences/discovery.py`):
+  - Deterministic ranking from four signals, kept on each experience:
+    representative, runnable now, quick, README-recommended.
+  - At most 4 runnable experiences. The ★ primary is the top one.
+  - Everything else is listed under "also detected", with its reason. When
+    nothing runs, the reasons, what RepoLab runs and a Mini Lab fallback.
+  - **Facts** (`repolab/experiences/facts.py`, on `RepoManifest.facts`), read at
+    investigation time with their lines:
+    - a shipped Spark runtime: `bin/spark-submit`, the README build command, the
+      java.version, the project version, the compiler heap, the README quickstart;
+    - a Python package: its names, requires-python, and README / `examples/`
+      snippets.
+- **Adapters:**
+  - **spark** (new; genuinely runs). Transform a Dataset ★, Try Spark SQL,
+    Explore Partitions & Shuffles:
+    - a learner's PySpark against a seeded sample dataset (`sales.csv`, schema
+      and hash shown);
+    - `spark-submit` in a fresh **hardened** container (`--network none
+      --cap-drop ALL --pids-limit --cpus`, no-new-privileges);
+    - measured from Spark's own event log with the existing parser: real
+      jobs / stages / tasks / partitions / runtime / shuffle bytes, plus Spark's
+      physical plan.
+
+    For a Spark *job* repository it offers "Run the Repository's Pipeline"
+    (the existing playground).
+  - **library** (new; genuinely runs). Try the Library: `pip install .` from the
+    commit into `python:<requires-python>` (cached per commit), then snippets in
+    a network-less container. Output and exit code are the interpreter's; the
+    only measurement is process time, labelled as such.
+  - **live** (re-expressed Phase 18): Use the Application / Try the API, with
+    starter actions from the declared routes.
+  - **cli** (re-expressed): Try the CLI → the existing terminal and lesson.
+  - **Mini Lab fallback** (existing generator): **SIMULATED / EDUCATIONAL**
+    badge and banner; it answers from its validated table and never measures.
+- **Understanding a run:**
+  - **"What just happened?"** (`spark/understanding.py`). Each step needs the
+    run's own evidence *and* a matching part of the investigation's
+    architecture: "1 job split into 2 stages", plan operators ("the Exchange is
+    a shuffle"). Each step links into Architecture and to source directories at
+    the commit. An official-runtime run says the links show the investigated
+    source, not the version that ran.
+  - **"Explain this run"** (`experiences/explain.py`) uses Super, verified with
+    Ask RepoLab's `verify_answer`: a measured claim must name a recorded
+    measurement.
+- **Experiments on the learner's code.** "Run an experiment" opens Ask with
+  `?experience=<session>`:
+  - The triage gate accepts a ready Spark session.
+  - `SnippetVariantRunner` implements the executor's `VariantRunner`, so the
+    *existing* loop runs the learner's snippet on their runtime: approval,
+    repeats, the equivalence check, deterministic statistics, explanation.
+  - The baseline is the learner's own partition count.
+  - No repository code runs, so the experiment doesn't depend on the default
+    branch staying put.
+- **Sessions** (`experience_sessions` and `experience_builds` tables, migration
+  `c3e5a7b9d1f2`):
+  - Persisted, so a refresh reconnects (`?session=`).
+  - Progress streams over the job's SSE.
+  - Worker tasks are `worker/experience_tasks.py` (prepare / run / explain).
+  - API is `api/routes/experience_sessions.py`.
+- **UI:**
+  - `experience-cards.tsx`: the ★ primary card (do / learn / notice, reality
+    badges, disclosures, estimates, [Start] / [Build and start]), Explore more,
+    and the "cannot run" block (why, what RepoLab runs, Mini Lab, Architecture,
+    Ask how to run locally).
+  - `experience-workspace.tsx`, with progressive disclosure:
+    - preparation steps;
+    - the dataset, starters, the code, partitions, [Run ▶];
+    - the result, then RUNTIME (measured), then What just happened;
+    - Explain, then Experiment;
+    - plan / logs / raw measurements;
+    - library output, and the Mini Lab console.
+  - The old surface cards stay, collapsed, under "Detected surfaces & evidence".
+
+**Verified live** (worker tasks run in-process through the real API routes; real
+Docker and Nemotron):
+
+- **apache/spark discovery:** ★ Transform a Dataset, Explore Partitions &
+  Shuffles, and Try Spark SQL, each offering "Official Apache Spark 3.5.1" (ready)
+  and "Spark built from this commit (5.0.0-SNAPSHOT)". The CLI is listed under
+  "also detected".
+- **Official runtime:**
+  - The smoke test `spark.range(1000).count() = 1000` passed. The session is
+    labelled OFFICIAL RUNTIME and discloses that it is "not this commit
+    (5.0.0-SNAPSHOT)".
+  - Transform ran in 9 s with real rows (US 154893…), 1 job / 2 stages / 5 tasks
+    / 4 partitions / 5.6 s from the event log.
+  - It mapped to SQL and DataFrames → Catalyst → Core Scheduler (DAGScheduler) →
+    Core Engine.
+  - Explain this run: verified, no unsupported claims.
+- **The experiment through the approval gate** on that session ran 6 values × 3
+  repeats = 18 runs and 270 measurements, with a grounded explanation:
+
+  | Partitions | Tasks | Median runtime | Empty partitions |
+  |---|---|---|---|
+  | 1 | 2 | 7.1 s | 0 |
+  | 4 | 5 | 12.4 s | 0 |
+  | 10 | 11 | 12.8 s | 5 |
+  | 100 | 101 | 11.0 s | 94 |
+  | 500 | 501 | 14.1 s | 494 |
+  | 1000 | 1001 | 25.8 s | 994 |
+
+- **Source build of the commit (REAL REPOSITORY): genuinely attempted, and it
+  fails on this machine for memory.**
+  - The README's `./build/mvn -DskipTests clean package` in `eclipse-temurin:17`
+    was killed with exit 137 compiling Spark SQL's *tests*: `-DskipTests` still
+    compiles tests, and `pom.xml:2871` forks scalac with `-Xms4g -Xmx4g`.
+  - This was measured three times: 6 GB, 7 GB with Maven capped at 1.5 GB, and
+    the real worker run.
+  - `-Dmaven.test.skip=true` breaks the build instead (the `tests` jars are
+    missing).
+  - The Docker VM has 7.7 GB in total. A preflight now refuses in seconds with
+    that reason, and the card shows it.
+  - Giving Docker about 10 GB is the remaining step; it was not faked.
+- **pallets/click:** ★ Try the Library.
+  - click 8.6.0.dev0 was installed from the commit into `python:3.10-slim`
+    (`requires-python >=3.10`).
+  - The README example (line 24) ran and stopped at its own interactive "Your
+    name:" prompt, since there is no stdin; that is real behaviour.
+  - An edited version printed "Hello, Ada!" twice.
+- **Discovery elsewhere:**
+  - pyspark-example-project: ★ Run the Repository's Pipeline (/playground).
+  - eventApp: ★ Use the Application + Try the API.
+  - Cassandra: ★ Try the CLI.
+  - Airflow (old manifest): nothing runnable, so reasons + Mini Lab.
+
+**Tests:**
+- `test_experiences_discovery.py` (17 tests): framework, job repo, CLI, web+API,
+  live running, library, workflow, unknown, the cap of 4, and facts read from
+  trees.
+- `test_experience_runs.py` (19 tests):
+  - the driver and markers;
+  - event-log measurements, failures with Spark's error, no success without the
+    marker;
+  - mapping only to real graph parts, and plan operators;
+  - the experiment runner (fresh run per variant, same dataset hash);
+  - hardened flags, bounded library output;
+  - explain verification, and the memory preflight.
+- `test_api_experience_sessions.py` (11 tests): start/reuse/reconnect, runs gated
+  on ready and bounded, Mini Lab simulated answers, the triage session backend,
+  the experiment target.
+- `test_experience_docker.py` (opt-in, 2 tests): a real Spark snippet on the
+  official image, and proof a Python snippet has no network.
+- **Web:** `page.test.tsx` (5) and `experience.test.tsx` (9).
+- **Totals:** 2,013 backend + 82 web tests pass; ruff, `tsc` and ESLint are
+  clean.
+
+**Runnable adapters now:**
+
+| Adapter | Reality |
+|---|---|
+| Spark data playground | official runtime; source build when memory allows |
+| Python library | real repository |
+| Web / API | real repository (Phase 18) |
+| Cassandra CLI | real or official, via the ladder |
+| Spark job pipeline | real repository |
+| Mini Lab | simulated |
+
+**Known limitations / remaining:**
+- **Spark source build** needs about 10 GB of Docker memory on this machine (see
+  above). The official runtime is labelled and disclosed in the meantime.
+- **Remaining adapters,** modelled as types but not runnable: database console,
+  workflow runner (DAG), generic CLI (beyond the Cassandra lesson), ML inference,
+  streaming demo, notebook, multi-service.
+- **Library playground:**
+  - Snippets get no stdin, so interactive examples stop at their prompt.
+  - Install-time egress is open, as for every build.
+- **Facts** are gathered at investigation time, so older manifests need
+  re-investigating before Spark or library experiences appear.
+- **The Spark sample dataset is RepoLab's** (seeded and labelled); learners
+  cannot upload their own yet.
+- **No Playwright run** of the new flow, and no `next build` (the dev server holds
+  `.next`).
 
 ---
 

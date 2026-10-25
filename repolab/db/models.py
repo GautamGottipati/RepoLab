@@ -647,3 +647,90 @@ class ModelCallRecord(Base):
     error_type: Mapped[str | None] = mapped_column(String(64), nullable=True)
 
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now, index=True)
+
+
+class RuntimeRecord(Base):
+    """One launch of a repository's services: its plan, and where each stands.
+
+    The proxy reads only this row to decide where a request may go: a runtime
+    that is not running, or a service it does not list, is not reachable.
+    """
+
+    __tablename__ = "runtimes"
+
+    id: Mapped[str] = mapped_column(String(32), primary_key=True)
+    repo_url: Mapped[str] = mapped_column(String(1024), index=True)
+    commit_sha: Mapped[str] = mapped_column(String(64), default="")
+    job_id: Mapped[str | None] = mapped_column(String(64), nullable=True, index=True)
+    """The job whose event stream carries this launch's progress."""
+
+    status: Mapped[str] = mapped_column(String(32), default="planning", index=True)
+    plan: Mapped[dict[str, Any] | None] = mapped_column(JsonColumn, nullable=True)
+    state: Mapped[dict[str, Any] | None] = mapped_column(JsonColumn, nullable=True)
+
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now)
+    last_used_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now)
+    """Touched by the proxy, so an idle runtime can be reaped."""
+
+
+class ExperienceBuildRecord(Base):
+    """An environment an experience runs in, built once per commit and reused.
+
+    A Spark source build of the investigated commit, or a Python package
+    installed into an image. Only the checkpoint is kept; the build log's tail is
+    kept for the failure screen.
+    """
+
+    __tablename__ = "experience_builds"
+    __table_args__ = (
+        UniqueConstraint(
+            "repo_url", "commit_sha", "adapter", "strategy", name="uq_experience_build"
+        ),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    repo_url: Mapped[str] = mapped_column(String(1024), index=True)
+    commit_sha: Mapped[str] = mapped_column(String(64))
+    adapter: Mapped[str] = mapped_column(String(64))
+    strategy: Mapped[str] = mapped_column(String(32))
+    status: Mapped[str] = mapped_column(String(32), default="building")
+    """``building``, ``ready`` or ``failed``."""
+
+    image: Mapped[str | None] = mapped_column(String(512), nullable=True)
+    """The checkpoint image runs start from, once ready."""
+
+    job_id: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    detail: Mapped[dict[str, Any] | None] = mapped_column(JsonColumn, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now)
+
+
+class ExperienceSessionRecord(Base):
+    """One person's use of one experience: its runtime, and every run they made.
+
+    Persisted so a refresh reconnects to the same session rather than starting
+    over, and so an experiment can be run against exactly what they ran.
+    """
+
+    __tablename__ = "experience_sessions"
+
+    id: Mapped[str] = mapped_column(String(32), primary_key=True)
+    job_id: Mapped[str] = mapped_column(String(64), index=True)
+    """The investigation this session belongs to."""
+
+    repo_url: Mapped[str] = mapped_column(String(1024), index=True)
+    commit_sha: Mapped[str] = mapped_column(String(64), default="")
+    experience_id: Mapped[str] = mapped_column(String(64), index=True)
+    adapter: Mapped[str] = mapped_column(String(64))
+    strategy: Mapped[str] = mapped_column(String(32))
+    reality: Mapped[str] = mapped_column(String(32))
+    status: Mapped[str] = mapped_column(String(32), default="preparing", index=True)
+    events_job_id: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    """The job whose event stream carries this session's progress."""
+
+    state: Mapped[dict[str, Any] | None] = mapped_column(JsonColumn, nullable=True)
+    """Runtime details, runs, explanations, failures."""
+
+    started_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now)
+    last_activity: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now)

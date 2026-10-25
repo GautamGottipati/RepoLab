@@ -49,6 +49,9 @@ SIGNAL_SURFACES: dict[str, tuple[SurfaceType, float]] = {
     "express_app": (SurfaceType.API, STRONG),
     "flask_app": (SurfaceType.WEB, STRONG),
     "django_urls": (SurfaceType.WEB, STRONG),
+    # A browser application bootstrapped in code: Angular's bootstrapModule,
+    # React's createRoot, Vue's createApp.
+    "frontend_app": (SurfaceType.WEB, STRONG),
     "route_decorator": (SurfaceType.API, MEDIUM),
     "uvicorn_run": (SurfaceType.API, MEDIUM),
     "port": (SurfaceType.API, WEAK),
@@ -83,6 +86,14 @@ FRAMEWORK_SURFACES: dict[str, tuple[tuple[SurfaceType, float], ...]] = {
     "Next.js": ((SurfaceType.WEB, MEDIUM),),
     "React": ((SurfaceType.WEB, WEAK),),
     "Vue": ((SurfaceType.WEB, WEAK),),
+    # Application frameworks: unlike a component library, declaring one means
+    # the repository ships a browser application.
+    "Angular": ((SurfaceType.WEB, MEDIUM),),
+    "SvelteKit": ((SurfaceType.WEB, MEDIUM),),
+    "Nuxt": ((SurfaceType.WEB, MEDIUM),),
+    "Remix": ((SurfaceType.WEB, MEDIUM),),
+    "Gatsby": ((SurfaceType.WEB, MEDIUM),),
+    "Svelte": ((SurfaceType.WEB, WEAK),),
     # Airflow genuinely ships both a web UI and a CLI.
     "Airflow": ((SurfaceType.WEB, MEDIUM), (SurfaceType.CLI, MEDIUM)),
     "Click": ((SurfaceType.CLI, MEDIUM),),
@@ -124,6 +135,7 @@ EXECUTABLE_SIGNAL_KINDS: frozenset[str] = frozenset(
         "flask_app",
         "django_urls",
         "express_app",
+        "frontend_app",
         "uvicorn_run",
         "click_command",
         "typer_app",

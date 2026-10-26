@@ -11,12 +11,13 @@
 
 import Link from "next/link";
 
+import { AskIcon, Button } from "./ui";
 import { contextFor, componentsIn, type ContextPanel } from "@/lib/ask";
 import { REPOSITORY_KIND_LABEL } from "@/lib/architecture";
 import type { AnswerResult, ArchitectureView, ExperimentState } from "@/lib/types";
 
 const INPUT =
-  "w-full resize-y rounded border border-neutral-300 px-3 py-2 text-sm outline-none focus:border-neutral-900 dark:border-neutral-700 dark:bg-neutral-900 dark:focus:border-neutral-300";
+  "w-full resize-y rounded-lg border border-line-strong bg-surface px-4 py-3 text-body text-fg outline-none transition-colors placeholder:text-fg-muted focus:border-ai focus:ring-2 focus:ring-ai-soft";
 
 export function QuestionBox({
   question,
@@ -45,12 +46,12 @@ export function QuestionBox({
   return (
     <section className="flex flex-col gap-3" data-testid="question-box">
       <div className="flex flex-wrap items-center gap-2">
-        <h2 className="text-sm font-semibold tracking-tight">
+        <h2 className="text-sm font-medium text-fg-secondary">
           {contextLabel ? `Ask about ${contextLabel}` : "Ask about this repository"}
         </h2>
         {contextLabel && (
           <span
-            className="inline-flex items-center gap-1 rounded-full bg-sky-100 py-0.5 pl-2.5 pr-1 text-xs text-sky-800 dark:bg-sky-950 dark:text-sky-300"
+            className="inline-flex items-center gap-1 rounded-full bg-brand-soft py-0.5 pl-2.5 pr-1 text-xs text-brand-fg"
             data-testid="question-focus"
           >
             Context: {contextLabel}
@@ -58,7 +59,7 @@ export function QuestionBox({
               type="button"
               onClick={onClearContext}
               aria-label={`Ask without the ${contextLabel} context`}
-              className="rounded-full px-1 leading-none hover:bg-sky-200 dark:hover:bg-sky-900"
+              className="rounded-full px-1 leading-none hover:bg-brand-line"
             >
               ×
             </button>
@@ -71,28 +72,30 @@ export function QuestionBox({
         onKeyDown={(event) => {
           if (event.key === "Enter" && (event.metaKey || event.ctrlKey) && !disabled) onAsk();
         }}
-        rows={2}
+        rows={3}
         aria-label="Question"
         placeholder={placeholder}
         data-testid="question"
         className={INPUT}
       />
       <div className="flex flex-wrap items-center gap-3">
-        <button
-          type="button"
+        <Button
+          variant="primary"
+          tone="ai"
           onClick={() => onAsk()}
           disabled={disabled}
           data-testid="ask"
-          className="rounded bg-neutral-900 px-4 py-2 text-sm font-medium text-white disabled:opacity-50 dark:bg-neutral-100 dark:text-neutral-900"
+          icon={<AskIcon size={14} />}
         >
           {busy ? "Working…" : "Ask"}
-        </button>
+        </Button>
+        <span className="hidden text-xs text-fg-muted sm:inline">⌘ Enter</span>
         {children}
       </div>
       {suggestions.length > 0 && (
         <div data-testid="suggestions">
-          <p className="text-xs text-neutral-500">Suggested</p>
-          <ul className="mt-1 flex flex-wrap gap-2">
+          <p className="text-xs font-semibold uppercase tracking-wider text-fg-muted">Suggested questions</p>
+          <ul className="mt-2 flex flex-wrap gap-2">
             {suggestions.map((suggestion) => (
               <li key={suggestion}>
                 <button
@@ -100,7 +103,7 @@ export function QuestionBox({
                   onClick={() => onAsk(suggestion)}
                   disabled={busy}
                   data-testid="suggestion"
-                  className="rounded-full border border-neutral-300 px-3 py-1 text-left text-xs hover:border-neutral-900 disabled:opacity-50 dark:border-neutral-700 dark:hover:border-neutral-300"
+                  className="rounded-full border border-line bg-surface px-3 py-1.5 text-left text-sm text-fg-secondary transition-colors hover:border-ai-line hover:bg-ai-soft hover:text-ai-fg disabled:opacity-50"
                 >
                   {suggestion}
                 </button>
@@ -130,19 +133,19 @@ export function AskContext({
 
   return (
     <section className="flex flex-col gap-4 text-sm" data-testid="ask-context">
-      <h2 className="text-xs font-semibold uppercase tracking-wide text-neutral-500">Repository context</h2>
+      <h2 className="text-xs font-semibold uppercase tracking-wide text-fg-secondary">Repository context</h2>
       {panel ? (
         <Selected panel={panel} />
       ) : understanding ? (
         <div data-testid="context-repository">
           <p className="font-medium">{understanding.name}</p>
-          <p className="text-xs text-neutral-500">{REPOSITORY_KIND_LABEL[understanding.repository_type]}</p>
+          <p className="text-xs text-fg-secondary">{REPOSITORY_KIND_LABEL[understanding.repository_type]}</p>
           {understanding.one_line_description && (
-            <p className="mt-1 text-neutral-600 dark:text-neutral-400">{understanding.one_line_description}</p>
+            <p className="mt-1 text-fg-secondary">{understanding.one_line_description}</p>
           )}
         </div>
       ) : (
-        <p className="text-xs text-neutral-500" data-testid="context-repository">
+        <p className="text-xs text-fg-secondary" data-testid="context-repository">
           {view.graph.summary ?? "Ask from a component on the Architecture page to keep it in context."}
         </p>
       )}
@@ -158,16 +161,16 @@ function Selected({ panel }: { panel: ContextPanel }) {
     <div className="flex flex-col gap-3" data-testid="context-selected">
       <div>
         <p className="font-medium">{panel.label}</p>
-        <p className="text-xs capitalize text-neutral-500">{panel.kind}</p>
+        <p className="text-xs capitalize text-fg-secondary">{panel.kind}</p>
         {panel.description && (
-          <p className="mt-1 text-neutral-600 dark:text-neutral-400">{panel.description}</p>
+          <p className="mt-1 text-fg-secondary">{panel.description}</p>
         )}
       </div>
       {panel.usedBy.length > 0 && <List title="Used by" items={panel.usedBy} testId="context-used-by" />}
       {panel.uses.length > 0 && <List title="Uses" items={panel.uses} testId="context-uses" />}
       {panel.implementedWith && (
         <div>
-          <h3 className="text-xs text-neutral-500">Implemented with</h3>
+          <h3 className="text-xs text-fg-secondary">Implemented with</h3>
           <p>{panel.implementedWith}</p>
         </div>
       )}
@@ -184,7 +187,7 @@ function Selected({ panel }: { panel: ContextPanel }) {
 function List({ title, items, mono = false, testId }: { title: string; items: string[]; mono?: boolean; testId: string }) {
   return (
     <div data-testid={testId}>
-      <h3 className="text-xs text-neutral-500">{title}</h3>
+      <h3 className="text-xs text-fg-secondary">{title}</h3>
       <ul className={`mt-0.5 flex flex-col ${mono ? "font-mono text-xs" : ""}`}>
         {items.map((item) => (
           <li key={item} className="break-all">
@@ -200,16 +203,16 @@ function List({ title, items, mono = false, testId }: { title: string; items: st
 export function QuestionHistory({ jobId, history }: { jobId: string; history: ExperimentState[] }) {
   return (
     <details className="text-sm" data-testid="question-history">
-      <summary className="cursor-pointer text-xs font-semibold uppercase tracking-wide text-neutral-500">
+      <summary className="cursor-pointer text-xs font-semibold uppercase tracking-wide text-fg-secondary">
         History {history.length > 0 && <span className="font-normal">({history.length})</span>}
       </summary>
       {history.length === 0 ? (
-        <p className="mt-2 text-xs text-neutral-500">No questions yet.</p>
+        <p className="mt-2 text-xs text-fg-secondary">No questions yet.</p>
       ) : (
         <ul className="mt-2 flex flex-col gap-1" data-testid="experiment-history">
           {history.map((entry) => (
             <li key={entry.experiment_id} className="flex min-w-0 items-baseline gap-2">
-              <span aria-hidden className="text-neutral-400">›</span>
+              <span aria-hidden className="text-fg-muted">›</span>
               <Link
                 href={`/r/${jobId}/ask/${entry.experiment_id}`}
                 className="min-w-0 flex-1 truncate underline-offset-2 hover:underline"
@@ -217,7 +220,7 @@ export function QuestionHistory({ jobId, history }: { jobId: string; history: Ex
               >
                 {entry.question}
               </Link>
-              <span className="shrink-0 text-xs text-neutral-400">{STATUS[entry.status] ?? entry.status}</span>
+              <span className="shrink-0 text-xs text-fg-muted">{STATUS[entry.status] ?? entry.status}</span>
             </li>
           ))}
         </ul>

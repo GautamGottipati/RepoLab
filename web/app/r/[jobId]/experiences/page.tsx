@@ -22,7 +22,6 @@
 
 "use client";
 
-import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { Suspense, useEffect, useState } from "react";
 
@@ -30,7 +29,7 @@ import { useWorkspace } from "../workspace";
 import { ExperienceCards } from "@/components/experience-cards";
 import { ExperienceWorkspace } from "@/components/experience-workspace";
 import { LiveExperience } from "@/components/live-experience";
-import { Badge, Empty, ErrorNote, Skeleton } from "@/components/ui";
+import { ActionLink, Badge, Empty, ErrorNote, PageHeader, Skeleton } from "@/components/ui";
 import { api, ApiError, optional } from "@/lib/api";
 import { sourceUrl } from "@/lib/architecture";
 import type {
@@ -64,7 +63,8 @@ function Experiences() {
   const [error, setError] = useState<string | null>(null);
   const [selected, setSelected] = useState<string | null>(null);
   const [starting, setStarting] = useState<string | null>(null);
-  const [live, setLive] = useState(false);
+  // `?live=1` opens the live application, as the Overview's "Start" does.
+  const [live, setLive] = useState(params.get("live") === "1");
   const session = params.get("session");
 
   useEffect(() => {
@@ -117,18 +117,20 @@ function Experiences() {
   const liveRunning = listing?.experiences.some((e) => e.adapter === "live" && e.state === "running") ?? false;
 
   return (
-    <div className="flex flex-col gap-6">
+    <div className="flex flex-col gap-8">
       {error && <ErrorNote>{error}</ErrorNote>}
 
       {!catalog && !error && <Skeleton rows={5} />}
 
-      {listing && (
-        <header data-testid="experiences-header">
-          <h1 className="text-xl font-semibold tracking-tight">
-            {runnable ? `Experience ${listing.name}` : listing.name}
-          </h1>
-          <p className="mt-1 text-sm text-neutral-600 dark:text-neutral-400">{listing.headline}</p>
-        </header>
+      {listing && !session && (
+        <div data-testid="experiences-header">
+          <PageHeader
+            eyebrow="Experiences"
+            accent="run"
+            title={runnable ? `Experience ${listing.name}` : listing.name}
+            description={listing.headline}
+          />
+        </div>
       )}
 
       {session && catalog && (
@@ -158,8 +160,8 @@ function Experiences() {
       )}
 
       {catalog && (
-        <details open={!runnable || undefined} className="flex flex-col gap-4" data-testid="detected-surfaces">
-          <summary className="cursor-pointer text-sm font-medium text-neutral-600 dark:text-neutral-400">
+        <details open={!runnable || undefined} className="flex flex-col gap-4 border-t border-line pt-6" data-testid="detected-surfaces">
+          <summary className="cursor-pointer text-sm font-medium text-fg-secondary hover:text-fg">
             Detected surfaces &amp; evidence
             {listing && listing.also.length > 0 && (
               <span className="ml-2 text-xs font-normal">
@@ -170,7 +172,7 @@ function Experiences() {
           <div className="mt-4 flex flex-col gap-5">
           <header className="flex flex-col gap-2">
             <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1">
-              <h1 className="text-lg font-semibold tracking-tight">Ways to use this repository</h1>
+              <h2 className="text-card font-semibold tracking-tight text-fg">Ways to use this repository</h2>
               {catalog.hybrid && (
                 // Wrapped rather than passed through: `Badge` takes children and a
                 // tone, and silently drops anything else.
@@ -179,10 +181,10 @@ function Experiences() {
                 </span>
               )}
             </div>
-            <p className="text-sm text-neutral-600 dark:text-neutral-400" data-testid="experiences-summary">
+            <p className="text-sm text-fg-secondary" data-testid="experiences-summary">
               {summary(catalog)}
             </p>
-            <p className="flex flex-wrap gap-x-4 text-xs text-neutral-500">
+            <p className="flex flex-wrap gap-x-4 text-xs text-fg-secondary">
               <span>{catalog.surface_count} detected</span>
               <span data-testid="runnable-count">{catalog.runnable_count} runnable in RepoLab</span>
             </p>
@@ -190,34 +192,30 @@ function Experiences() {
 
           {!listing && catalog.experiences.length > 0 && catalog.runnable_count === 0 && (
             <section
-              className="rounded-lg border border-neutral-200 bg-neutral-50 p-4 dark:border-neutral-800 dark:bg-neutral-900/40"
+              className="rounded-lg border border-line bg-surface-subtle p-4"
               data-testid="nothing-runnable"
             >
               <h2 className="text-sm font-semibold">RepoLab can&apos;t run this repository yet</h2>
-              <p className="mt-1 text-sm text-neutral-600 dark:text-neutral-400">
+              <p className="mt-1 text-sm text-fg-secondary">
                 There is no live experience for these surfaces in this build. You can still learn
                 how the code works: every component and relationship below the surface is mapped
                 from the source.
               </p>
               <div className="mt-3 flex flex-wrap gap-2">
-                <Link
-                  href={`/r/${jobId}/architecture`}
-                  data-testid="explore-architecture"
-                  className="rounded bg-neutral-900 px-3 py-1.5 text-xs font-medium text-white dark:bg-neutral-100 dark:text-neutral-900"
-                >
-                  Explore the architecture →
-                </Link>
-                <Link
+                <ActionLink kind="arch" href={`/r/${jobId}/architecture`} data-testid="explore-architecture">
+                  Explore the architecture
+                </ActionLink>
+                <ActionLink
+                  kind="ask"
                   href={
                     firstQuestion
                       ? `/r/${jobId}/ask?q=${encodeURIComponent(firstQuestion)}`
                       : `/r/${jobId}/ask`
                   }
                   data-testid="ask-instead"
-                  className="rounded border border-neutral-300 px-3 py-1.5 text-xs font-medium dark:border-neutral-700"
                 >
-                  {firstQuestion ? `Ask: ${firstQuestion}` : "Ask RepoLab about it"} →
-                </Link>
+                  {firstQuestion ? `Ask: ${firstQuestion}` : "Ask RepoLab about it"}
+                </ActionLink>
               </div>
             </section>
           )}
@@ -225,7 +223,7 @@ function Experiences() {
           {catalog.experiences.length === 0 && (
             <Empty title="No interaction surface was detected">
               The investigation found nothing it could justify, so nothing is offered. Its
-              confidence and limits are on the Investigation screen.
+              confidence and limits are under &ldquo;View analysis details&rdquo; on the Overview.
             </Empty>
           )}
 
@@ -246,7 +244,7 @@ function Experiences() {
           </ul>
 
           {catalog.rationale && (
-            <details className="text-xs text-neutral-500" data-testid="classification-details">
+            <details className="text-xs text-fg-secondary" data-testid="classification-details">
               <summary className="cursor-pointer">How RepoLab decided</summary>
               <p className="mt-1 font-mono">{catalog.rationale}</p>
             </details>
@@ -290,8 +288,8 @@ function ExperienceCard({
   onSelect: () => void;
 }) {
   const border = experience.runnable
-    ? "border-emerald-300 dark:border-emerald-800"
-    : "border-neutral-200 dark:border-neutral-800";
+    ? "border-run-line"
+    : "border-line";
   const strength = experience.strength ?? (experience.weak ? "weak" : "moderate");
   const signals = experience.signals?.length ? experience.signals : [experience.reason];
 
@@ -299,7 +297,7 @@ function ExperienceCard({
     <li
       data-testid={`experience-${experience.surface}`}
       data-status={experience.status}
-      className={`flex flex-col rounded-lg border bg-white dark:bg-neutral-950 ${border}`}
+      className={`flex flex-col rounded-lg border bg-surface ${border}`}
     >
       <div className="flex items-start gap-3 px-4 py-3">
         <span aria-hidden className="mt-0.5 w-6 shrink-0 text-center font-mono text-lg leading-none">
@@ -310,7 +308,7 @@ function ExperienceCard({
             <span className="text-sm font-semibold">{experience.name}</span>
             {experience.primary && <Badge>primary</Badge>}
             <span
-              className={`text-xs ${strength === "weak" ? "text-neutral-400" : "text-neutral-500"}`}
+              className={`text-xs ${strength === "weak" ? "text-fg-muted" : "text-fg-secondary"}`}
               title={`confidence ${experience.confidence.toFixed(2)}`}
               data-testid={`strength-${experience.surface}`}
             >
@@ -318,56 +316,57 @@ function ExperienceCard({
             </span>
           </p>
           {experience.meaning && (
-            <p className="mt-0.5 text-sm text-neutral-600 dark:text-neutral-400">{experience.meaning}</p>
+            <p className="mt-0.5 text-sm text-fg-secondary">{experience.meaning}</p>
           )}
         </div>
       </div>
 
-      <div className="border-t border-neutral-200 px-4 py-3 dark:border-neutral-800">
+      <div className="border-t border-line px-4 py-3">
         {experience.runnable && !experience.route ? (
-          <p data-testid={`runnable-${experience.surface}`} className="text-sm text-emerald-700 dark:text-emerald-300">
+          <p data-testid={`runnable-${experience.surface}`} className="text-sm text-run-fg">
             Runnable: RepoLab has a plan to start it from the repository&apos;s own scripts. Start it
             under &ldquo;Run it in RepoLab&rdquo;.
           </p>
         ) : experience.runnable && experience.route ? (
           <div data-testid={`runnable-${experience.surface}`}>
-            <p className="text-sm text-emerald-700 dark:text-emerald-300">
+            <p className="text-sm text-run-fg">
               Runnable in this build, through RepoLab&apos;s {experience.adapter}.
             </p>
-            <Link
+            <ActionLink
+              kind="run"
               href={`/r/${jobId}${experience.route}`}
               data-testid={`open-${experience.surface}`}
-              className="mt-2 inline-block rounded bg-neutral-900 px-3 py-1.5 text-xs font-medium text-white dark:bg-neutral-100 dark:text-neutral-900"
+              className="mt-2"
             >
-              Open the {experience.label} experience →
-            </Link>
+              Open the {experience.label} experience
+            </ActionLink>
           </div>
         ) : (
-          <p data-testid={`unavailable-${experience.surface}`} className="text-sm text-neutral-500">
+          <p data-testid={`unavailable-${experience.surface}`} className="text-sm text-fg-secondary">
             {experience.unavailable_reason}
           </p>
         )}
       </div>
 
-      <div className="mt-auto border-t border-neutral-200 dark:border-neutral-800">
+      <div className="mt-auto border-t border-line">
         <button
           type="button"
           onClick={onSelect}
           aria-expanded={expanded}
           data-testid={`select-${experience.surface}`}
-          className="flex w-full items-center gap-2 px-4 py-2 text-left text-xs text-neutral-500 hover:text-neutral-900 dark:hover:text-neutral-200"
+          className="flex w-full items-center gap-2 px-4 py-2 text-left text-xs text-fg-secondary hover:text-fg"
         >
           <span aria-hidden>{expanded ? "▾" : "▸"}</span>
           Why RepoLab thinks so
         </button>
         {expanded && (
           <div data-testid={`evidence-${experience.surface}`} className="px-4 pb-3">
-            <ul className="list-disc pl-5 text-sm text-neutral-700 dark:text-neutral-300">
+            <ul className="list-disc pl-5 text-sm text-fg">
               {signals.map((signal) => (
                 <li key={signal}>{signal.charAt(0).toUpperCase() + signal.slice(1)}</li>
               ))}
             </ul>
-            <h3 className="mt-3 text-xs font-semibold uppercase tracking-wide text-neutral-500">
+            <h3 className="mt-3 text-xs font-semibold uppercase tracking-wide text-fg-secondary">
               Evidence in the repository
             </h3>
             <ul className="mt-1 flex flex-col gap-0.5">
@@ -375,7 +374,7 @@ function ExperienceCard({
                 const href = sourceUrl(repoUrl, commitSha, reference);
                 const label = `${reference.path}${reference.start_line ? `:${reference.start_line}` : ""}`;
                 return (
-                  <li key={`${reference.path}-${index}`} className="break-all font-mono text-xs text-neutral-600 dark:text-neutral-400">
+                  <li key={`${reference.path}-${index}`} className="break-all font-mono text-xs text-fg-secondary">
                     {href ? (
                       <a href={href} target="_blank" rel="noreferrer" className="underline-offset-2 hover:underline">
                         {label}
@@ -387,7 +386,7 @@ function ExperienceCard({
                 );
               })}
               {experience.evidence.length === 0 && (
-                <li className="text-xs text-neutral-400">No files cited.</li>
+                <li className="text-xs text-fg-muted">No files cited.</li>
               )}
             </ul>
           </div>

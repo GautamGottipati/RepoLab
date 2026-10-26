@@ -55,8 +55,8 @@ function Architecture() {
     return (
       <Panel title="Architecture">
         <Skeleton rows={4} />
-        <p className="mt-3 text-xs text-neutral-500">
-          Available once the investigation has produced a manifest.
+        <p className="mt-3 text-sm text-fg-secondary">
+          The architecture appears here once RepoLab has finished reading the repository.
         </p>
       </Panel>
     );
@@ -70,6 +70,7 @@ function Architecture() {
       overlay={overlay}
       initialSubsystem={searchParams.get("subsystem")}
       initialSelection={searchParams.get("node")}
+      initialPerspective={searchParams.get("view")}
     />
   );
 }

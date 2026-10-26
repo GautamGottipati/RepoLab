@@ -15,7 +15,6 @@
 
 "use client";
 
-import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { createPortal } from "react-dom";
@@ -25,7 +24,7 @@ import { TriageNote } from "@/components/answer-card";
 import { AnswerView } from "@/components/answer-view";
 import { AskContext, QuestionBox, QuestionHistory } from "@/components/ask-context";
 import { ApprovalCard, CliApprovalCard } from "@/components/approval-card";
-import { ErrorNote, Note, Panel, Skeleton } from "@/components/ui";
+import { ActionLink, AskIcon, Card, ErrorNote, Note, PageHeader, Panel, Skeleton } from "@/components/ui";
 import { api, ApiError, optional } from "@/lib/api";
 import { suggestionsFor } from "@/lib/ask";
 import { focusFor } from "@/lib/architecture";
@@ -176,7 +175,17 @@ export default function AskPage() {
 
   return (
     <div className="flex flex-col gap-6">
-      <Panel>
+      <PageHeader
+        eyebrow={
+          <>
+            <AskIcon size={14} /> Ask RepoLab
+          </>
+        }
+        accent="ai"
+        title="Ask RepoLab"
+        description="Understand anything about this repository. Answers come from its code and official docs — and when a question can be tested, from a real experiment you approve."
+      />
+      <Card className="p-5">
         <QuestionBox
           question={question}
           onChange={setQuestion}
@@ -195,7 +204,7 @@ export default function AskPage() {
           }
         >
           {experienceSession && (
-            <span className="text-xs text-violet-700 dark:text-violet-300" data-testid="experience-target">
+            <span className="text-xs text-ai-fg" data-testid="experience-target">
               An experiment will run your code from the experience, on the same runtime.
             </span>
           )}
@@ -203,13 +212,13 @@ export default function AskPage() {
             <button
               type="button"
               onClick={() => setQuestion(DEMO_QUESTION)}
-              className="text-xs text-neutral-500 underline underline-offset-2"
+              className="text-xs text-fg-secondary underline underline-offset-2"
             >
               Use the demo question
             </button>
           )}
         </QuestionBox>
-      </Panel>
+      </Card>
 
       {error && <ErrorNote>{error}</ErrorNote>}
 
@@ -230,14 +239,14 @@ export default function AskPage() {
             </div>
           )}
           <Skeleton rows={2} />
-          <p className="mt-3 text-xs text-neutral-500" data-testid="answer-status">
+          <p className="mt-3 text-xs text-fg-secondary" data-testid="answer-status">
             {latestStatus(events) ?? "Starting…"}
           </p>
           <button
             type="button"
             onClick={() => setShowActivity((v) => !v)}
             aria-expanded={showActivity}
-            className="mt-1 text-xs underline underline-offset-2"
+            className="mt-1 text-xs text-brand-fg hover:underline"
           >
             {showActivity ? "Hide what the agent is doing" : "Show what the agent is doing"}
           </button>
@@ -252,10 +261,10 @@ export default function AskPage() {
       {experiment?.status === "failed" && experiment.rejection && (
         <Panel title="The proposed experiment was refused">
           <p className="text-sm font-medium">{experiment.rejection.reason}</p>
-          <p className="mt-1 text-sm text-neutral-600 dark:text-neutral-400">
+          <p className="mt-1 text-sm text-fg-secondary">
             {experiment.rejection.detail}
           </p>
-          <p className="mt-3 text-xs text-neutral-500">
+          <p className="mt-3 text-xs text-fg-secondary">
             Validation decides what may run, not the model. This is a real answer,
             not an error.
           </p>
@@ -274,7 +283,7 @@ export default function AskPage() {
       )}
 
       {experiment?.status === "answered" && experiment.answer && (
-        <Panel>
+        <Card accent="ai" className="p-5 sm:p-6">
           <AnswerView
             result={experiment.answer}
             repoUrl={experiment.repo_url}
@@ -282,7 +291,20 @@ export default function AskPage() {
             architecture={architecture?.graph ?? null}
             onAsk={(next) => void ask(next)}
           />
-        </Panel>
+          <div className="mt-6 flex flex-wrap gap-2 border-t border-line pt-4" data-testid="answer-actions">
+            <ActionLink
+              kind="arch"
+              href={focusId ? `/r/${jobId}/architecture?node=${encodeURIComponent(focusId)}` : `/r/${jobId}/architecture`}
+            >
+              Show in architecture
+            </ActionLink>
+            {experiences && experiences.runnable_count > 0 && (
+              <ActionLink kind="run" href={`/r/${jobId}/experiences`}>
+                Try it in an experience
+              </ActionLink>
+            )}
+          </div>
+        </Card>
       )}
 
       {experiment?.status === "awaiting_approval" && experiment.triage && (
@@ -301,14 +323,12 @@ export default function AskPage() {
         (experiment.status === "approved" ||
           experiment.status === "running" ||
           experiment.status === "completed") && (
-          <Panel title="Approved">
-            <Link
-              href={`/r/${jobId}/ask/${experiment.experiment_id}`}
-              className="text-sm underline"
-            >
-              See the results →
-            </Link>
-          </Panel>
+          <Card accent="exp" className="flex flex-wrap items-center justify-between gap-3 p-5">
+            <p className="text-sm text-fg">The experiment is approved and runs on real software.</p>
+            <ActionLink kind="experiment" variant="primary" size="md" href={`/r/${jobId}/ask/${experiment.experiment_id}`}>
+              See the results
+            </ActionLink>
+          </Card>
         )}
 
       {asideSlot &&

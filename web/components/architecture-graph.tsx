@@ -21,16 +21,28 @@ const BOX_HEIGHT = 48;
 const COLUMN_GAP = 64;
 const ROW_GAP = 18;
 
-const TONE_CLASS: Record<string, string> = {
-  slate: "fill-slate-50 stroke-slate-400 dark:fill-slate-900 dark:stroke-slate-600",
-  teal: "fill-teal-50 stroke-teal-500 dark:fill-teal-950 dark:stroke-teal-700",
-  violet: "fill-violet-50 stroke-violet-500 dark:fill-violet-950 dark:stroke-violet-700",
-  sky: "fill-sky-50 stroke-sky-500 dark:fill-sky-950 dark:stroke-sky-700",
-  amber: "fill-amber-50 stroke-amber-500 dark:fill-amber-950 dark:stroke-amber-700",
-  emerald: "fill-emerald-50 stroke-emerald-500 dark:fill-emerald-950 dark:stroke-emerald-700",
-  rose: "fill-rose-50 stroke-rose-500 dark:fill-rose-950 dark:stroke-rose-700",
-  indigo: "fill-indigo-50 stroke-indigo-500 dark:fill-indigo-950 dark:stroke-indigo-700",
-  fuchsia: "fill-fuchsia-50 stroke-fuchsia-500 dark:fill-fuchsia-950 dark:stroke-fuchsia-700",
+/**
+ * Roles are told apart by a thin stripe in a restrained family, not by filling
+ * every box with a different saturated colour: interfaces in deep cyan,
+ * processing in cyan, data in slate, everything else neutral. Selection is the
+ * one strong signal on the canvas.
+ */
+const STRIPE: Record<string, string> = {
+  interface: "fill-arch-fg",
+  processing: "fill-arch",
+  data: "fill-fg-muted",
+  other: "fill-line-strong",
+};
+const FAMILY: Record<string, keyof typeof STRIPE> = {
+  violet: "interface",
+  indigo: "interface",
+  sky: "processing",
+  emerald: "processing",
+  rose: "processing",
+  fuchsia: "processing",
+  amber: "data",
+  teal: "data",
+  slate: "other",
 };
 
 export function ArchitectureGraph({
@@ -58,6 +70,15 @@ export function ArchitectureGraph({
   const rows = Math.max(1, ...[...placements.values()].map((p) => p.row + 1));
   const width = columns * BOX_WIDTH + (columns - 1) * COLUMN_GAP;
   const height = rows * BOX_HEIGHT + (rows - 1) * ROW_GAP;
+  // What the selection touches: everything else steps back.
+  const connected = new Set<string>();
+  if (selected) {
+    for (const edge of graph.edges) {
+      if (edge.source === selected) connected.add(edge.target);
+      if (edge.target === selected) connected.add(edge.source);
+    }
+  }
+  const dimmed = (id: string) => selected !== null && id !== selected && !connected.has(id);
   const at = (id: string) => {
     const p = placements.get(id);
     return p ? { x: p.rank * (BOX_WIDTH + COLUMN_GAP), y: p.row * (BOX_HEIGHT + ROW_GAP) } : null;
@@ -100,6 +121,7 @@ export function ArchitectureGraph({
           const midX = (startX + endX) / 2;
           const onFlow = emphasised.has(`${edge.source}->${edge.target}`);
           const active = selected === edge.source || selected === edge.target;
+          const faded = selected !== null && !active;
           return (
             <path
               key={`${edge.source}-${edge.target}-${index}`}
@@ -115,13 +137,9 @@ export function ArchitectureGraph({
               strokeWidth={active || onFlow ? 1.8 : 1}
               strokeDasharray={edge.provenance === "inferred" ? "4 3" : undefined}
               markerEnd="url(#arch-arrow)"
-              className={
-                active
-                  ? "text-sky-600"
-                  : onFlow
-                    ? "text-neutral-500 dark:text-neutral-400"
-                    : "text-neutral-300 dark:text-neutral-700"
-              }
+              className={`transition-opacity duration-150 ${
+                active ? "text-arch" : onFlow ? "text-fg-secondary" : "text-fg-muted"
+              } ${faded ? "opacity-25" : ""}`}
             >
               <title>{edge.type.replace(/_/g, " ")}</title>
             </path>
@@ -134,6 +152,8 @@ export function ArchitectureGraph({
           const isSelected = selected === node.id;
           const isHighlighted = highlighted.has(node.id);
           const values = measured[node.id] ?? [];
+          const isConnected = connected.has(node.id);
+          const family = FAMILY[CATEGORY_TONE[node.category]] ?? "other";
           return (
             <g
               key={node.id}
@@ -145,6 +165,8 @@ export function ArchitectureGraph({
               data-testid="architecture-node"
               data-node-id={node.id}
               data-highlighted={isHighlighted || undefined}
+              data-connected={isConnected || undefined}
+              data-dimmed={dimmed(node.id) || undefined}
               onClick={() => onSelect(node.id)}
               onKeyDown={(event) => {
                 if (event.key === "Enter" || event.key === " ") {
@@ -152,28 +174,37 @@ export function ArchitectureGraph({
                   onSelect(node.id);
                 }
               }}
-              className="cursor-pointer outline-none"
+              className={`group cursor-pointer outline-none transition-opacity duration-150 ${
+                dimmed(node.id) ? "opacity-40" : ""
+              }`}
             >
               <rect
                 width={BOX_WIDTH}
                 height={BOX_HEIGHT}
-                rx="7"
-                strokeWidth={isSelected || isHighlighted ? 2.5 : 1}
+                rx="8"
+                strokeWidth={isSelected || isHighlighted ? 2 : 1}
                 strokeDasharray={node.children.length ? "5 3" : undefined}
-                className={`${TONE_CLASS[CATEGORY_TONE[node.category]]} ${
-                  isHighlighted ? "stroke-sky-600" : ""
+                className={`transition-colors duration-150 group-hover:stroke-arch group-focus-visible:stroke-brand ${
+                  isSelected
+                    ? "fill-arch-soft stroke-arch"
+                    : isHighlighted
+                      ? "fill-surface stroke-arch"
+                      : isConnected
+                        ? "fill-surface stroke-arch-line"
+                        : "fill-surface stroke-line-strong"
                 }`}
               />
-              <text x="10" y="19" className="fill-neutral-900 text-[11px] font-medium dark:fill-neutral-100">
+              <rect x="0" y="10" width="3" height={BOX_HEIGHT - 20} rx="1.5" className={STRIPE[family]} />
+              <text x="12" y="20" className="fill-fg text-[11px] font-medium">
                 {truncate(node.label, 24)}
               </text>
-              <text x="10" y="34" className="fill-neutral-500 text-[9px]">
-                {truncate(caption(node), 30)}
+              <text x="12" y="35" className="fill-fg-muted text-[10px]">
+                {truncate(caption(node), 28)}
               </text>
               {values.length > 0 && (
                 <g data-testid="measured-badge">
-                  <rect x={BOX_WIDTH - 16} y="-6" width="20" height="14" rx="7" className="fill-emerald-600" />
-                  <text x={BOX_WIDTH - 6} y="4" textAnchor="middle" className="fill-white text-[8px] font-semibold">
+                  <rect x={BOX_WIDTH - 16} y="-6" width="20" height="14" rx="7" className="fill-run" />
+                  <text x={BOX_WIDTH - 6} y="4" textAnchor="middle" className="fill-white text-[9px] font-semibold">
                     M
                   </text>
                   <title>{`${values.length} measured value(s)`}</title>

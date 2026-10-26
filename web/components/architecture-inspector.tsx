@@ -103,7 +103,7 @@ export function ArchitectureInspector({
         ) : (
           <>
             A {CATEGORY_LABEL[node.category]} RepoLab found in the code.{" "}
-            <span className="text-neutral-500">No plain-language description was written for it.</span>
+            <span className="text-fg-secondary">No plain-language description was written for it.</span>
           </>
         )}
       </Meaning>
@@ -128,7 +128,7 @@ export function ArchitectureInspector({
 
       <Meaning title="How does it connect?">
         {connections.length === 0 ? (
-          <span className="text-neutral-500">No relationship could be evidenced.</span>
+          <span className="text-fg-secondary">No relationship could be evidenced.</span>
         ) : (
           <ul className="flex flex-col gap-1 text-xs" data-testid="connections">
             {connections.map((line) => (
@@ -151,32 +151,32 @@ export function ArchitectureInspector({
           {files.map((path) => (
             <li key={path}>
               <span className="font-medium">{path.split("/").pop()}</span>{" "}
-              <span className="text-neutral-500">{path.split("/").slice(0, -1).join("/")}</span>
+              <span className="text-fg-secondary">{path.split("/").slice(0, -1).join("/")}</span>
             </li>
           ))}
         </ul>
       </Meaning>
 
       <Evidenced>
-        <p className="text-xs text-neutral-600 dark:text-neutral-400" data-testid="detected-because">
+        <p className="text-xs text-fg-secondary" data-testid="detected-because">
           <span className="font-medium">Why RepoLab detected it:</span> {node.detected_because}
         </p>
         <SourceEvidence repoUrl={repoUrl} commit={commit} node={node} />
 
         <Section title="Static" hint="read directly from the source">
           {properties.length === 0 && node.children.length === 0 ? (
-            <p className="text-xs text-neutral-500">The references above.</p>
+            <p className="text-xs text-fg-secondary">The references above.</p>
           ) : (
             <dl className="grid gap-1 text-xs">
               {properties.map(([key, value]) => (
                 <div key={key} className="flex gap-2">
-                  <dt className="shrink-0 text-neutral-500">{key.replace(/_/g, " ")}</dt>
+                  <dt className="shrink-0 text-fg-secondary">{key.replace(/_/g, " ")}</dt>
                   <dd className="font-mono break-all">{render(value)}</dd>
                 </div>
               ))}
               {node.children.length > 0 && (
                 <div className="flex gap-2">
-                  <dt className="shrink-0 text-neutral-500">groups</dt>
+                  <dt className="shrink-0 text-fg-secondary">groups</dt>
                   <dd>{node.children.join(", ")}</dd>
                 </div>
               )}
@@ -187,7 +187,7 @@ export function ArchitectureInspector({
           {node.inferred_fields.length > 0 ? (
             <p className="text-xs">Written by Nemotron: {node.inferred_fields.join(", ").replace(/_/g, " ")}.</p>
           ) : (
-            <p className="text-xs text-neutral-500">Nothing inferred beyond the static facts.</p>
+            <p className="text-xs text-fg-secondary">Nothing inferred beyond the static facts.</p>
           )}
         </Section>
         <MeasuredSection measured={measured} />
@@ -233,7 +233,7 @@ export function ConceptInspector({
           {inferred && <InferredTag />}
         </h3>
         {concept.term && (
-          <p className="mt-0.5 text-xs text-neutral-500" data-testid="concept-term">
+          <p className="mt-0.5 text-xs text-fg-secondary" data-testid="concept-term">
             Internal name: <span className="font-mono">{concept.term}</span>
           </p>
         )}
@@ -255,7 +255,7 @@ export function ConceptInspector({
             onSelect={onSelect}
           />
         ) : (
-          <span className="text-neutral-500">No relationship to the other concepts could be evidenced.</span>
+          <span className="text-fg-secondary">No relationship to the other concepts could be evidenced.</span>
         )}
         <ul className="sr-only" data-testid="connections">
           {conceptRelationships(graph, concept.id).map((line) => (
@@ -266,7 +266,7 @@ export function ConceptInspector({
 
       <Meaning title="Where is it implemented?">
         {subsystems.length === 0 && members.length === 0 ? (
-          <span className="text-neutral-500">See the evidence below.</span>
+          <span className="text-fg-secondary">See the evidence below.</span>
         ) : (
           <div className="flex flex-col gap-1.5 text-xs">
             {subsystems.map((s) => (
@@ -306,7 +306,7 @@ export function ConceptInspector({
           onExplore={onExplore}
         />
         <Section title={inferred ? "Inferred" : "Static"} hint={inferred ? "interpreted by Nemotron from the evidence above" : "taken from the repository's structure"}>
-          <p className="text-xs text-neutral-500">
+          <p className="text-xs text-fg-secondary">
             {inferred
               ? "This concept was proposed by Nemotron and kept only because it cites the evidence above."
               : "This concept is a part of the repository RepoLab found from its structure."}
@@ -328,8 +328,8 @@ export function ConceptInspector({
 function Meaning({ title, testId, children }: { title: string; testId?: string; children: React.ReactNode }) {
   return (
     <div data-testid={testId}>
-      <h4 className="text-[11px] font-semibold uppercase tracking-wide text-neutral-500">{title}</h4>
-      <div className="mt-1 text-sm text-neutral-800 dark:text-neutral-200">{children}</div>
+      <h4 className="text-xs font-semibold uppercase tracking-wide text-fg-secondary">{title}</h4>
+      <div className="mt-1 text-sm text-fg">{children}</div>
     </div>
   );
 }
@@ -337,8 +337,8 @@ function Meaning({ title, testId, children }: { title: string; testId?: string; 
 /** Everything that answers "how do you know?", after the meaning. */
 function Evidenced({ children }: { children: React.ReactNode }) {
   return (
-    <div data-testid="evidence-sections" className="flex flex-col gap-3 border-t border-neutral-200 pt-3 dark:border-neutral-800">
-      <h4 className="text-[11px] font-semibold uppercase tracking-wide text-neutral-500">How RepoLab knows</h4>
+    <div data-testid="evidence-sections" className="flex flex-col gap-3 border-t border-line pt-3">
+      <h4 className="text-xs font-semibold uppercase tracking-wide text-fg-secondary">How RepoLab knows</h4>
       {children}
     </div>
   );
@@ -360,15 +360,15 @@ function RoleDiagram({
       <button type="button" onClick={() => onSelect(n.id)} className="underline underline-offset-2">
         {n.label}
       </button>
-      <span className="ml-1 text-[10px] text-neutral-400">{n.how.replace(/_/g, " ")}</span>
+      <span className="ml-1 text-xs text-fg-muted">{n.how.replace(/_/g, " ")}</span>
     </li>
   );
   return (
     <div className="flex flex-col items-start gap-1 text-xs" data-testid="role-diagram">
       {before.length > 0 && <ul className="flex flex-col gap-0.5">{before.map(item)}</ul>}
-      {before.length > 0 && <span aria-hidden className="text-neutral-400">↓</span>}
-      <span className="rounded border border-neutral-400 px-2 py-0.5 font-medium">{self}</span>
-      {after.length > 0 && <span aria-hidden className="text-neutral-400">↓</span>}
+      {before.length > 0 && <span aria-hidden className="text-fg-muted">↓</span>}
+      <span className="rounded border border-line-strong px-2 py-0.5 font-medium">{self}</span>
+      {after.length > 0 && <span aria-hidden className="text-fg-muted">↓</span>}
       {after.length > 0 && <ul className="flex flex-col gap-0.5">{after.map(item)}</ul>}
     </div>
   );
@@ -392,7 +392,7 @@ function SourceEvidence({ repoUrl, commit, node }: { repoUrl: string; commit: st
                 where
               )}
               {ref.excerpt && (
-                <pre className="mt-1 overflow-x-auto rounded bg-neutral-100 p-2 text-[10px] text-neutral-600 dark:bg-neutral-900 dark:text-neutral-400">
+                <pre className="mt-1 overflow-x-auto rounded bg-surface-subtle p-2 text-xs text-fg-secondary">
                   {ref.excerpt}
                 </pre>
               )}
@@ -418,7 +418,7 @@ export function EvidenceList({
   onSelect?: (id: string) => void;
   onExplore?: (id: string) => void;
 }) {
-  if (evidence.length === 0) return <p className="text-xs text-neutral-500">No evidence recorded.</p>;
+  if (evidence.length === 0) return <p className="text-xs text-fg-secondary">No evidence recorded.</p>;
   return (
     <ul className="flex flex-col gap-1.5 text-xs" data-testid="evidence-list">
       {evidence.map((item, index) => {
@@ -454,11 +454,11 @@ export function EvidenceList({
         }
         return (
           <li key={`${item.label}-${index}`} data-evidence-kind={item.kind}>
-            <span className="mr-1.5 rounded bg-neutral-100 px-1 py-0.5 text-[9px] uppercase tracking-wide text-neutral-500 dark:bg-neutral-800">
+            <span className="mr-1.5 rounded bg-surface-subtle px-1 py-0.5 text-xs uppercase tracking-wide text-fg-secondary">
               {EVIDENCE_KIND_LABEL[item.kind]}
             </span>
             {body}
-            {item.excerpt && <span className="ml-1 text-neutral-500">“{item.excerpt}”</span>}
+            {item.excerpt && <span className="ml-1 text-fg-secondary">“{item.excerpt}”</span>}
           </li>
         );
       })}
@@ -470,7 +470,7 @@ function MeasuredSection({ measured }: { measured: MeasuredValue[] }) {
   return (
     <Section title="Measured" hint="observed during a real run">
       {measured.length === 0 ? (
-        <p className="text-xs text-neutral-500" data-testid="nothing-measured">
+        <p className="text-xs text-fg-secondary" data-testid="nothing-measured">
           Nothing measured yet. Values appear here only after RepoLab runs this repository.
         </p>
       ) : (
@@ -480,7 +480,7 @@ function MeasuredSection({ measured }: { measured: MeasuredValue[] }) {
               <span>{value.name}</span>
               <span className="font-mono">
                 {formatMeasured(value.value, value.unit)}
-                <span className="ml-2 text-[10px] text-neutral-400">{value.source}</span>
+                <span className="ml-2 text-xs text-fg-muted">{value.source}</span>
               </span>
             </li>
           ))}
@@ -523,7 +523,7 @@ function Actions({
   const experiment = actions?.experiment;
   const ask = actions?.suggested_questions[0] ?? `What does ${label} do, and why does it exist?`;
   return (
-    <div className="flex flex-col gap-2 border-t border-neutral-200 pt-3 dark:border-neutral-800">
+    <div className="flex flex-col gap-2 border-t border-line pt-3">
       <div className="flex flex-wrap gap-2">
         {openCode && (
           <a
@@ -531,7 +531,7 @@ function Actions({
             target="_blank"
             rel="noreferrer"
             data-testid="open-code"
-            className="rounded border border-neutral-300 px-3 py-1.5 text-xs font-medium dark:border-neutral-700"
+            className="rounded border border-line-strong px-3 py-1.5 text-xs font-medium"
           >
             Open code
           </a>
@@ -539,7 +539,7 @@ function Actions({
         <Link
           href={askUrl(jobId, id, ask)}
           data-testid="ask-why"
-          className="rounded bg-neutral-900 px-3 py-1.5 text-xs font-medium text-white dark:bg-neutral-100 dark:text-neutral-900"
+          className="rounded bg-brand px-3 py-1.5 text-xs font-medium text-white"
         >
           Ask RepoLab
         </Link>
@@ -547,14 +547,14 @@ function Actions({
           <Link
             href={askUrl(jobId, id, experiment.question)}
             data-testid="experiment"
-            className="rounded bg-violet-700 px-3 py-1.5 text-xs font-medium text-white"
+            className="rounded bg-ai-fg px-3 py-1.5 text-xs font-medium text-white"
           >
             Run experiment
           </Link>
         )}
       </div>
       {experiment && !experiment.available && experiment.needs_environment && (
-        <p className="text-[11px] text-neutral-400" data-testid="experiment-later">
+        <p className="text-xs text-fg-muted" data-testid="experiment-later">
           Experiments available after building the environment.
         </p>
       )}
@@ -565,9 +565,9 @@ function Actions({
 function Section({ title, hint, children }: { title: string; hint?: string; children: React.ReactNode }) {
   return (
     <div>
-      <h5 className="text-[11px] font-semibold uppercase tracking-wide text-neutral-500">
+      <h5 className="text-xs font-semibold uppercase tracking-wide text-fg-secondary">
         {title}
-        {hint && <span className="ml-2 font-normal normal-case text-neutral-400">{hint}</span>}
+        {hint && <span className="ml-2 font-normal normal-case text-fg-muted">{hint}</span>}
       </h5>
       <div className="mt-1">{children}</div>
     </div>
@@ -578,7 +578,7 @@ export function InferredTag() {
   return (
     <span
       title="Written by Nemotron from the evidence; not itself evidence"
-      className="ml-1.5 rounded bg-neutral-100 px-1 py-0.5 align-middle text-[9px] font-normal uppercase tracking-wide text-neutral-500 dark:bg-neutral-800"
+      className="ml-1.5 rounded bg-surface-subtle px-1 py-0.5 align-middle text-xs font-normal uppercase tracking-wide text-fg-secondary"
     >
       inferred
     </span>

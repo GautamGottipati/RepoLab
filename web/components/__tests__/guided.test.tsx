@@ -162,7 +162,41 @@ describe("experiments", () => {
 
   it("appear in the learning path only when one is available", () => {
     renderGuided();
+    // The learning path is its own perspective now, one click from the overview.
+    fireEvent.click(screen.getByTestId("perspective-learning"));
     expect(screen.getByTestId("learning-experiment").textContent).toContain("spark.sql.shuffle.partitions=200");
+  });
+
+  it("are listed together under Related experiments", () => {
+    renderGuided();
+    fireEvent.click(screen.getByTestId("perspective-experiments"));
+    expect(screen.getByTestId("related-experiments").textContent).toContain("spark.sql.shuffle.partitions=200");
+  });
+});
+
+describe("perspectives", () => {
+  it("look at the same architecture from different sides, starting with the map", () => {
+    renderGuided();
+    const nav = screen.getByRole("navigation", { name: "Architecture perspectives" });
+    expect(screen.getByTestId("perspective-overview").getAttribute("aria-current")).toBe("page");
+    expect(nav.textContent).toContain("Core components");
+    fireEvent.click(screen.getByTestId("perspective-components"));
+    expect(screen.queryByTestId("orientation")).toBeNull();
+    expect(screen.getAllByTestId("subsystem-card")).toHaveLength(3);
+    fireEvent.click(screen.getByTestId("perspective-overview"));
+    expect(screen.getByTestId("orientation")).toBeTruthy();
+  });
+
+  it("dims what a selection does not touch, and opens its details", () => {
+    renderGuided();
+    const model = screen.getByTestId("system-model");
+    const nodes = within(model).getAllByTestId("architecture-node");
+    fireEvent.click(nodes[0]);
+    expect(nodes[0].getAttribute("aria-pressed")).toBe("true");
+    const states = nodes.slice(1).map((n) => n.getAttribute("data-connected") ?? n.getAttribute("data-dimmed"));
+    // Every other concept is either connected to the selection or dimmed.
+    expect(states.every((value) => value === "true")).toBe(true);
+    expect(screen.getByRole("complementary", { name: "Selected" })).toBeTruthy();
   });
 });
 

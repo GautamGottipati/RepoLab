@@ -136,8 +136,14 @@ describe("preparing", () => {
     );
     renderWorkspace();
     const steps = await screen.findByTestId("preparation-steps");
-    expect(steps.textContent).toContain("✓selected the official release");
-    expect(steps.textContent).toContain("→running a tiny Spark job");
+    // Each step says what it is and where it stands, in text as well as colour.
+    const items = [...steps.querySelectorAll("li")];
+    expect(items.map((li) => [li.getAttribute("data-state"), li.textContent?.includes("selected the official release") || li.textContent?.includes("running a tiny Spark job")])).toEqual([
+      ["done", true],
+      ["current", true],
+    ]);
+    expect(items[0].textContent).toContain("done");
+    expect(items[1].textContent).toContain("in progress");
   });
 
   it("says why it could not prepare, with the log", async () => {
@@ -231,5 +237,34 @@ describe("a library and a Mini Lab", () => {
     expect(screen.getByTestId("reality-badge").textContent).toBe("SIMULATED / EDUCATIONAL");
     fireEvent.click(within(lab).getByRole("button", { name: "airflow dags list" }));
     expect(await within(lab).findByText("[SIMULATED] Lists DAGs from dags/.")).toBeTruthy();
+  });
+});
+
+describe("the guide", () => {
+  it("ticks only what the session really did, and points at the next step", async () => {
+    const { guideSteps } = await import("../experience-workspace");
+    const fresh = guideSteps(session(), true);
+    expect(fresh.map((s) => [s.key, s.state])).toEqual([
+      ["intro", "done"],
+      ["run", "current"],
+      ["understand", "upcoming"],
+      ["experiment", "upcoming"],
+      ["source", "upcoming"],
+      ["next", "upcoming"],
+    ]);
+    const ran = guideSteps(session({}, { runs: [sparkRun()] }), true);
+    expect(ran.find((s) => s.key === "run")?.state).toBe("done");
+    expect(ran.find((s) => s.key === "understand")?.state).toBe("current");
+    // A library playground has no Spark run to understand or experiment on.
+    expect(guideSteps(session({ adapter: "library" }), false).map((s) => s.key)).toEqual(["intro", "run", "next"]);
+  });
+
+  it("is a navigation the learner can move around freely", async () => {
+    calls.experienceSession.mockResolvedValue(session());
+    renderWorkspace();
+    const guide = await screen.findByTestId("experience-guide");
+    expect(guide.getAttribute("aria-label")).toBe("Experience guide");
+    // Every step is a button, not a locked wizard.
+    expect(within(guide).getAllByRole("button", { name: /Explore the source/ }).length).toBeGreaterThan(0);
   });
 });

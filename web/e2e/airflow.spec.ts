@@ -101,14 +101,16 @@ test.describe("P3 — hybrid detection, from the browser", () => {
     await expect(page.getByTestId("tab-Playground")).toHaveCount(0);
     console.log("  no Learn or Playground tab is offered");
 
-    // -- The Investigation screen agrees ------------------------------------
-    await page.getByTestId("tab-Investigation").click();
-    await expect(page.getByTestId("see-experiences")).toContainText("4 experiences");
+    // -- The Overview agrees ---------------------------------------------------
+    await page.getByTestId("tab-Overview").click();
+    await expect(page.getByTestId("overview-nothing-runs")).toBeVisible();
+    await page.getByText("View analysis details").click();
+    await expect(page.getByTestId("see-experiences")).toContainText("4 detected surfaces");
     await expect(page.getByTestId("open-runnable")).toHaveCount(0);
 
     // The surface count links to the screen, so the route in is discoverable.
     await page.getByTestId("surfaces-link").click();
-    await expect(page.getByRole("heading", { name: "Available Experiences" })).toBeVisible();
-    console.log("  the investigation screen routes to the experiences");
+    await expect(page.getByTestId("detected-surfaces")).toBeVisible();
+    console.log("  the overview routes to the experiences");
   });
 });

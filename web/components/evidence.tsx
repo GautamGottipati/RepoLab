@@ -22,24 +22,24 @@ type AnyClaim = { kind: AnyClaimKind; statement: string; support: string };
 
 const KIND_STYLE: Record<AnyClaimKind, { border: string; label: string; tone: string }> = {
   repository: {
-    border: "border-l-4 border-l-violet-500",
+    border: "border-l-4 border-l-ai",
     label: "static · repository",
-    tone: "text-violet-700 dark:text-violet-300",
+    tone: "text-ai-fg",
   },
   measured: {
-    border: "border-l-4 border-l-emerald-500",
+    border: "border-l-4 border-l-run",
     label: "measured",
-    tone: "text-emerald-700 dark:text-emerald-300",
+    tone: "text-run-fg",
   },
   documented: {
-    border: "border-l-4 border-l-sky-500",
+    border: "border-l-4 border-l-brand",
     label: "documented",
-    tone: "text-sky-700 dark:text-sky-300",
+    tone: "text-brand-fg",
   },
   inferred: {
-    border: "border-l-4 border-l-neutral-300 dark:border-l-neutral-700",
+    border: "border-l-4 border-l-line-strong",
     label: "inferred",
-    tone: "text-neutral-500 dark:text-neutral-400",
+    tone: "text-fg-secondary",
   },
 };
 
@@ -64,7 +64,7 @@ export function ClaimList({ claims }: { claims: AnyClaim[] }) {
           <div key={kind} data-testid={`claims-${kind}`}>
             <h4 className={`text-xs font-semibold uppercase tracking-wide ${style.tone}`}>
               {style.label}
-              <span className="ml-2 font-normal normal-case text-neutral-400">
+              <span className="ml-2 font-normal normal-case text-fg-muted">
                 {KIND_HINT[kind]}
               </span>
             </h4>
@@ -72,12 +72,12 @@ export function ClaimList({ claims }: { claims: AnyClaim[] }) {
               {group.map((claim, index) => (
                 <li
                   key={`${kind}-${index}`}
-                  className={`${style.border} rounded-r bg-neutral-50 py-2 pl-3 pr-3 dark:bg-neutral-900/50`}
+                  className={`${style.border} rounded-r bg-surface-subtle py-2 pl-3 pr-3`}
                 >
-                  <p className={kind === "inferred" ? "text-sm text-neutral-600 dark:text-neutral-400" : "text-sm"}>
+                  <p className={kind === "inferred" ? "text-sm text-fg-secondary" : "text-sm"}>
                     {claim.statement}
                   </p>
-                  <p className="mt-1 font-mono text-xs text-neutral-400">
+                  <p className="mt-1 font-mono text-xs text-fg-muted">
                     {kind === "documented" ? (
                       <a
                         href={claim.support}
@@ -117,17 +117,17 @@ export function UnsupportedClaims({
   return (
     <div
       data-testid="unsupported-claims"
-      className="rounded border-2 border-red-400 bg-red-50 p-3 dark:border-red-800 dark:bg-red-950/40"
+      className="rounded border-2 border-danger bg-danger-soft p-3"
     >
-      <p className="text-sm font-semibold text-red-800 dark:text-red-200">
+      <p className="text-sm font-semibold text-danger-fg">
         {claims.length} claim{claims.length === 1 ? "" : "s"} could not be traced back to
         the evidence
       </p>
       <ul className="mt-2 flex flex-col gap-2">
         {claims.map((claim, index) => (
           <li key={index} className="text-xs">
-            <p className="text-red-900 dark:text-red-200">{claim.statement}</p>
-            <p className="mt-0.5 font-mono text-red-700 dark:text-red-400">{claim.problem}</p>
+            <p className="text-danger-fg">{claim.statement}</p>
+            <p className="mt-0.5 font-mono text-danger-fg">{claim.problem}</p>
           </li>
         ))}
       </ul>
@@ -155,7 +155,7 @@ export function EvidencePanel({
 
   return (
     <div data-testid="evidence-panel">
-      <div className="flex flex-wrap gap-1 border-b border-neutral-200 dark:border-neutral-800">
+      <div className="flex flex-wrap gap-1 border-b border-line">
         {tabs.map((entry) => (
           <button
             key={entry.key}
@@ -164,12 +164,12 @@ export function EvidencePanel({
             data-testid={`evidence-tab-${entry.key}`}
             className={`border-b-2 px-3 py-2 text-xs ${
               tab === entry.key
-                ? "border-neutral-900 font-medium dark:border-neutral-100"
-                : "border-transparent text-neutral-500"
+                ? "border-brand font-medium"
+                : "border-transparent text-fg-secondary"
             }`}
           >
             {entry.label}
-            <span className="ml-1.5 text-neutral-400">{entry.badge}</span>
+            <span className="ml-1.5 text-fg-muted">{entry.badge}</span>
           </button>
         ))}
       </div>
@@ -180,12 +180,12 @@ export function EvidencePanel({
           <ul className="flex flex-col gap-2">
             {evidence.code_references.map((ref, index) => (
               <li key={index} className="font-mono text-xs">
-                <p className="text-neutral-700 dark:text-neutral-300">
+                <p className="text-fg">
                   {ref.path}
                   {ref.start_line ? `:${ref.start_line}` : ""}
                 </p>
                 {ref.excerpt && (
-                  <pre className="mt-1 overflow-x-auto rounded bg-neutral-100 p-2 text-neutral-600 dark:bg-neutral-900 dark:text-neutral-400">
+                  <pre className="mt-1 overflow-x-auto rounded bg-surface-subtle p-2 text-fg-secondary">
                     {ref.excerpt}
                   </pre>
                 )}
@@ -198,8 +198,8 @@ export function EvidencePanel({
           <ul className="flex flex-col gap-3">
             {evidence.logs.map((log, index) => (
               <li key={index}>
-                <p className="font-mono text-xs text-neutral-500">{log.source}</p>
-                <pre className="mt-1 overflow-x-auto rounded bg-neutral-100 p-2 font-mono text-[10px] leading-relaxed dark:bg-neutral-900">
+                <p className="font-mono text-xs text-fg-secondary">{log.source}</p>
+                <pre className="mt-1 overflow-x-auto rounded bg-surface-subtle p-2 font-mono text-xs leading-relaxed">
                   {log.excerpt}
                 </pre>
               </li>
@@ -220,13 +220,13 @@ export function EvidencePanel({
                   {doc.title ?? doc.url}
                 </a>
                 {doc.version && (
-                  <span className="ml-2 text-xs text-neutral-400">
+                  <span className="ml-2 text-xs text-fg-muted">
                     searched for version {doc.version}
                   </span>
                 )}
-                <p className="mt-0.5 font-mono text-[10px] text-neutral-400">{doc.url}</p>
+                <p className="mt-0.5 font-mono text-xs text-fg-muted">{doc.url}</p>
                 {doc.excerpt && (
-                  <p className="mt-1 text-xs text-neutral-600 dark:text-neutral-400">
+                  <p className="mt-1 text-xs text-fg-secondary">
                     {doc.excerpt}
                   </p>
                 )}
@@ -238,7 +238,7 @@ export function EvidencePanel({
       </div>
 
       {evidence.simulated && (
-        <p className="mt-3 rounded bg-amber-100 px-3 py-2 text-xs font-semibold uppercase dark:bg-amber-950">
+        <p className="mt-3 rounded bg-exp-soft px-3 py-2 text-xs font-semibold uppercase">
           Simulated — not experimental evidence
         </p>
       )}
@@ -260,7 +260,7 @@ function Measurements({ evidence }: { evidence: EvidenceBundle }) {
   return (
     <table className="w-full border-collapse text-left text-xs">
       <thead>
-        <tr className="border-b border-neutral-200 text-neutral-500 dark:border-neutral-800">
+        <tr className="border-b border-line text-fg-secondary">
           <th className="py-1 pr-4 font-medium">metric</th>
           <th className="py-1 pr-4 font-medium">unit</th>
           <th className="py-1 pr-4 font-medium">samples</th>
@@ -269,11 +269,11 @@ function Measurements({ evidence }: { evidence: EvidenceBundle }) {
       </thead>
       <tbody className="font-mono">
         {[...byName.entries()].map(([name, group]) => (
-          <tr key={name} className="border-b border-neutral-100 dark:border-neutral-900">
+          <tr key={name} className="border-b border-line">
             <td className="py-1 pr-4">{name}</td>
-            <td className="py-1 pr-4 text-neutral-500">{group[0].unit}</td>
+            <td className="py-1 pr-4 text-fg-secondary">{group[0].unit}</td>
             <td className="py-1 pr-4">{count(group.length)}</td>
-            <td className="py-1 text-neutral-500">{group[0].source}</td>
+            <td className="py-1 text-fg-secondary">{group[0].source}</td>
           </tr>
         ))}
       </tbody>

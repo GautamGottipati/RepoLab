@@ -76,18 +76,18 @@ export function AnswerView({ result, repoUrl, commitSha, architecture = null, on
   return (
     <div className="flex min-w-0 flex-col gap-6" data-testid="answer-view" data-shape={shape}>
       <section data-testid="simple-answer">
-        <h3 className="text-xs font-semibold uppercase tracking-wide text-neutral-500">
+        <h3 className="text-xs font-semibold uppercase tracking-wider text-ai-fg">
           {SHAPE_LABEL[shape]}
         </h3>
         {verified && answer ? (
           <>
             <UnsupportedClaims claims={verified.unsupported} />
-            <p className="mt-2 text-lg leading-relaxed" data-testid="answer">
+            <p className="mt-2 text-lg leading-relaxed text-fg" data-testid="answer">
               {summaryOf(answer)}
             </p>
           </>
         ) : (
-          <p className="mt-2 text-sm text-neutral-600 dark:text-neutral-400" data-testid="answer-error">
+          <p className="mt-2 text-sm text-fg-secondary" data-testid="answer-error">
             {result.error ?? "No answer could be produced."}
           </p>
         )}
@@ -121,7 +121,7 @@ export function AnswerView({ result, repoUrl, commitSha, architecture = null, on
 
       {followUps.length > 0 && (onAsk || askHref) && (
         <section data-testid="continue-exploring">
-          <h3 className="text-xs font-semibold uppercase tracking-wide text-neutral-500">
+          <h3 className="text-xs font-semibold uppercase tracking-wide text-fg-secondary">
             Continue exploring
           </h3>
           <ul className="mt-2 flex flex-wrap gap-2">
@@ -132,7 +132,7 @@ export function AnswerView({ result, repoUrl, commitSha, architecture = null, on
                     type="button"
                     onClick={() => onAsk(question)}
                     data-testid="follow-up"
-                    className="rounded-full border border-neutral-300 px-3 py-1.5 text-left text-sm hover:border-neutral-900 dark:border-neutral-700 dark:hover:border-neutral-300"
+                    className="rounded-full border border-line bg-surface px-3 py-1.5 text-left text-sm text-fg-secondary transition-colors hover:border-ai-line hover:bg-ai-soft hover:text-ai-fg"
                   >
                     {question} →
                   </button>
@@ -140,7 +140,7 @@ export function AnswerView({ result, repoUrl, commitSha, architecture = null, on
                   <a
                     href={askHref!(question)}
                     data-testid="follow-up"
-                    className="block rounded-full border border-neutral-300 px-3 py-1.5 text-sm hover:border-neutral-900 dark:border-neutral-700"
+                    className="block rounded-full border border-line bg-surface px-3 py-1.5 text-sm text-fg-secondary transition-colors hover:border-ai-line hover:bg-ai-soft hover:text-ai-fg"
                   >
                     {question} →
                   </a>
@@ -181,19 +181,19 @@ function Visual({
     <section className="flex min-w-0 flex-col gap-4">
       {graph && <AnswerDiagram answer={answer} graph={graph} onOpen={onOpen} />}
       {missing.length > 0 && (
-        <p className="text-xs text-neutral-500" data-testid="not-established">
+        <p className="text-xs text-fg-secondary" data-testid="not-established">
           RepoLab could not establish from the code: {missing.join(" · ")}. These are not drawn.
         </p>
       )}
       {locations.length > 0 && (
         <div data-testid="code-map">
-          <h3 className="text-xs font-semibold uppercase tracking-wide text-neutral-500">Where it lives</h3>
+          <h3 className="text-xs font-semibold uppercase tracking-wide text-fg-secondary">Where it lives</h3>
           <ol className="mt-2 flex flex-col">
             {locations.map((location, index) => (
               <li key={`${location.path}-${index}`} className="flex flex-col" data-testid="code-map-entry">
-                {index > 0 && <span aria-hidden className="ml-3 text-neutral-400">↓</span>}
-                <div className="rounded border border-neutral-200 px-3 py-2 dark:border-neutral-800">
-                  <p className="text-xs font-medium text-neutral-500">{location.role}</p>
+                {index > 0 && <span aria-hidden className="ml-3 text-fg-muted">↓</span>}
+                <div className="rounded border border-line px-3 py-2">
+                  <p className="text-xs font-medium text-fg-secondary">{location.role}</p>
                   <button
                     type="button"
                     onClick={() => onOpen(location.line ? `${location.path}:${location.line}` : location.path, location.why || location.role)}
@@ -202,7 +202,7 @@ function Visual({
                     {location.path}
                     {location.line ? `:${location.line}` : ""}
                   </button>
-                  {location.why && <p className="mt-0.5 text-xs text-neutral-500">{location.why}</p>}
+                  {location.why && <p className="mt-0.5 text-xs text-fg-secondary">{location.why}</p>}
                 </div>
               </li>
             ))}
@@ -213,10 +213,10 @@ function Visual({
         <div className="overflow-x-auto" data-testid="comparison">
           <table className="w-full min-w-[20rem] border-collapse text-left text-sm">
             <thead>
-              <tr className="border-b border-neutral-200 text-xs text-neutral-500 dark:border-neutral-800">
+              <tr className="border-b border-line text-xs text-fg-secondary">
                 <th className="py-1.5 pr-4 font-medium" />
                 {comparison.subjects.map((subject) => (
-                  <th key={subject} className="py-1.5 pr-4 font-semibold text-neutral-900 dark:text-neutral-100">
+                  <th key={subject} className="py-1.5 pr-4 font-semibold text-fg">
                     {subject}
                   </th>
                 ))}
@@ -227,16 +227,16 @@ function Visual({
                 <tr
                   key={row.attribute}
                   data-provenance={row.provenance}
-                  className="border-b border-neutral-100 align-top dark:border-neutral-900"
+                  className="border-b border-line align-top"
                 >
-                  <th className="py-1.5 pr-4 text-xs font-medium text-neutral-500">
+                  <th className="py-1.5 pr-4 text-xs font-medium text-fg-secondary">
                     {row.attribute}
                     {row.provenance === "inferred" && <span className="ml-1 italic">(inferred)</span>}
                   </th>
                   {row.values.map((value, i) => (
                     <td
                       key={i}
-                      className={`py-1.5 pr-4 ${row.provenance === "unknown" ? "italic text-neutral-400" : ""}`}
+                      className={`py-1.5 pr-4 ${row.provenance === "unknown" ? "italic text-fg-muted" : ""}`}
                     >
                       {value}
                     </td>
@@ -323,7 +323,7 @@ export function AnswerDiagram({
               strokeWidth={1.4}
               strokeDasharray={edge.provenance === "inferred" ? "4 3" : undefined}
               markerEnd="url(#answer-arrow)"
-              className="text-neutral-400 dark:text-neutral-500"
+              className="text-fg-muted"
             >
               <title>{edge.label || "connects to"}</title>
             </path>
@@ -357,12 +357,12 @@ export function AnswerDiagram({
                 width={BOX_W}
                 height={BOX_H}
                 rx="7"
-                className="fill-white stroke-neutral-400 dark:fill-neutral-900 dark:stroke-neutral-600"
+                className="fill-surface stroke-line-strong"
               />
-              <text x={BOX_W / 2} y="19" textAnchor="middle" className="fill-neutral-900 text-[12px] font-medium dark:fill-neutral-100">
+              <text x={BOX_W / 2} y="19" textAnchor="middle" className="fill-fg text-[12px] font-medium">
                 {truncate(box.label, 22)}
               </text>
-              <text x={BOX_W / 2} y="34" textAnchor="middle" className="fill-neutral-500 text-[9px]">
+              <text x={BOX_W / 2} y="34" textAnchor="middle" className="fill-fg-muted text-[10px]">
                 {truncate(box.caption, 26)}
               </text>
             </g>
@@ -370,7 +370,7 @@ export function AnswerDiagram({
         })}
       </svg>
       <figcaption className="mt-3">
-        <ul className="flex flex-col gap-1 text-xs text-neutral-600 dark:text-neutral-400" data-testid="relationships">
+        <ul className="flex flex-col gap-1 text-xs text-fg-secondary" data-testid="relationships">
           {visual.edges.map((edge, index) => {
             const from = visual.nodes.find((n) => n.id === edge.source)?.label;
             const to = visual.nodes.find((n) => n.id === edge.target)?.label;
@@ -382,11 +382,11 @@ export function AnswerDiagram({
                   {edge.label ? `: ${edge.label}` : ""}
                 </span>
                 {edge.provenance === "inferred" ? (
-                  <span className="italic text-neutral-400">inferred</span>
+                  <span className="italic text-fg-muted">inferred</span>
                 ) : file ? (
                   <SourceChip cited={file} onOpen={() => onOpen(file, `${from} → ${to}`)} />
                 ) : (
-                  <span className="text-neutral-400">from the architecture analysis</span>
+                  <span className="text-fg-muted">from the architecture analysis</span>
                 )}
               </li>
             );
@@ -404,16 +404,16 @@ function Steps({ answer, onOpen }: { answer: GroundedAnswer; onOpen: (cited: str
   if (steps.length === 0) return null;
   return (
     <section data-testid="how-it-works">
-      <h3 className="text-xs font-semibold uppercase tracking-wide text-neutral-500">How it works</h3>
+      <h3 className="text-xs font-semibold uppercase tracking-wide text-fg-secondary">How it works</h3>
       <ol className="mt-2 flex flex-col gap-3">
         {steps.map((step, index) => (
           <li key={index} className="flex gap-3" data-testid="answer-step">
-            <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-neutral-900 text-xs font-semibold text-white dark:bg-neutral-100 dark:text-neutral-900">
+            <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-brand text-xs font-semibold text-white">
               {index + 1}
             </span>
             <div className="min-w-0">
               <p className="text-sm font-medium">{step.title}</p>
-              <p className="text-sm text-neutral-600 dark:text-neutral-400">{step.description}</p>
+              <p className="text-sm text-fg-secondary">{step.description}</p>
               {step.sources.length > 0 && (
                 <div className="mt-1 flex flex-wrap gap-2">
                   {step.sources.map((source) => (
@@ -450,16 +450,16 @@ function Details({ answer, onOpen }: { answer: GroundedAnswer; onOpen: (cited: s
       )}
       {detail && (
         <div>
-          <h3 className="text-xs font-semibold uppercase tracking-wide text-neutral-500">In more detail</h3>
-          <p className="mt-1 text-sm leading-relaxed text-neutral-700 dark:text-neutral-300" data-testid="answer-detail">
+          <h3 className="text-xs font-semibold uppercase tracking-wide text-fg-secondary">In more detail</h3>
+          <p className="mt-1 text-sm leading-relaxed text-fg" data-testid="answer-detail">
             {detail}
           </p>
         </div>
       )}
       {answer.caveats.length > 0 && (
         <div data-testid="caveats">
-          <h3 className="text-xs font-semibold uppercase tracking-wide text-neutral-500">What the evidence does not show</h3>
-          <ul className="mt-1 list-disc pl-5 text-sm text-neutral-600 dark:text-neutral-400">
+          <h3 className="text-xs font-semibold uppercase tracking-wide text-fg-secondary">What the evidence does not show</h3>
+          <ul className="mt-1 list-disc pl-5 text-sm text-fg-secondary">
             {answer.caveats.map((caveat) => (
               <li key={caveat}>{caveat}</li>
             ))}
@@ -474,13 +474,13 @@ function Section({ section, onOpen }: { section: AnswerSection; onOpen: (cited: 
   const basis = BASIS[section.basis];
   return (
     <div data-testid="answer-section" data-basis={section.basis}>
-      <h3 className="flex flex-wrap items-center gap-2 text-xs font-semibold uppercase tracking-wide text-neutral-500">
+      <h3 className="flex flex-wrap items-center gap-2 text-xs font-semibold uppercase tracking-wide text-fg-secondary">
         {section.title}
         <Badge tone={basis.tone}>{basis.label}</Badge>
       </h3>
       <p
         className={`mt-1 text-sm leading-relaxed ${
-          section.basis === "evidenced" ? "" : "text-neutral-600 dark:text-neutral-400"
+          section.basis === "evidenced" ? "" : "text-fg-secondary"
         }`}
       >
         {section.body}
@@ -499,7 +499,7 @@ function Section({ section, onOpen }: { section: AnswerSection; onOpen: (cited: 
 function SourceChip({ cited, onOpen }: { cited: string; onOpen: () => void }) {
   if (/^https?:\/\//.test(cited)) {
     return (
-      <a href={cited} target="_blank" rel="noreferrer" data-testid="source-chip" className="break-all font-mono text-xs text-sky-700 underline-offset-2 hover:underline dark:text-sky-300">
+      <a href={cited} target="_blank" rel="noreferrer" data-testid="source-chip" className="break-all font-mono text-xs text-brand-fg underline-offset-2 hover:underline">
         🌐 {cited.replace(/^https?:\/\//, "")}
       </a>
     );
@@ -509,7 +509,7 @@ function SourceChip({ cited, onOpen }: { cited: string; onOpen: () => void }) {
       type="button"
       onClick={onOpen}
       data-testid="source-chip"
-      className="break-all text-left font-mono text-xs text-neutral-600 underline-offset-2 hover:underline dark:text-neutral-400"
+      className="break-all text-left font-mono text-xs text-fg-secondary underline-offset-2 hover:underline"
     >
       📄 {cited}
     </button>
@@ -538,20 +538,20 @@ function Sources({
 
   return (
     <section data-testid="sources">
-      <h3 className="text-xs font-semibold uppercase tracking-wide text-neutral-500">Sources</h3>
+      <h3 className="text-xs font-semibold uppercase tracking-wide text-fg-secondary">Sources</h3>
       <p className="mt-1 flex flex-wrap gap-x-4 font-mono text-xs" data-testid="source-counts">
         <span>Code {counts.code}</span>
         <span>Docs {counts.docs}</span>
         <span>Runtime {counts.runtime}</span>
       </p>
       <p
-        className={`mt-1 text-xs ${counts.runtime > 0 ? "text-emerald-700 dark:text-emerald-300" : "text-neutral-500"}`}
+        className={`mt-1 text-xs ${counts.runtime > 0 ? "text-run-fg" : "text-fg-secondary"}`}
         data-testid="provenance-line"
       >
         {counts.runtime > 0 ? "●" : "✓"} {provenanceLine(counts)}
       </p>
 
-      <ul className="mt-3 flex flex-col divide-y divide-neutral-100 rounded border border-neutral-200 dark:divide-neutral-900 dark:border-neutral-800">
+      <ul className="mt-3 flex flex-col divide-y divide-line rounded border border-line">
         {shown.map((source) => {
           const isOpen = expanded === source.path;
           const link = sourceUrl(repoUrl, commitSha, {
@@ -569,10 +569,10 @@ function Sources({
                 aria-expanded={isOpen}
                 className="flex w-full min-w-0 items-start gap-2 text-left"
               >
-                <span aria-hidden className="text-neutral-400">{isOpen ? "▾" : "▸"}</span>
+                <span aria-hidden className="text-fg-muted">{isOpen ? "▾" : "▸"}</span>
                 <span className="min-w-0">
                   <span className="block truncate text-sm">{source.reason}</span>
-                  <span className="block break-all font-mono text-xs text-neutral-500">
+                  <span className="block break-all font-mono text-xs text-fg-secondary">
                     {source.path}
                     {source.line ? `:${source.line}` : ""}
                   </span>
@@ -583,7 +583,7 @@ function Sources({
                   {source.reference ? (
                     <Excerpt source={source} />
                   ) : (
-                    <p className="text-xs text-neutral-500">RepoLab did not keep an excerpt of this file.</p>
+                    <p className="text-xs text-fg-secondary">RepoLab did not keep an excerpt of this file.</p>
                   )}
                   <div className="mt-1 flex gap-3 text-xs">
                     <button type="button" onClick={() => onOpen(source)} className="underline underline-offset-2">
@@ -600,7 +600,7 @@ function Sources({
             </li>
           );
         })}
-        {sources.length === 0 && <li className="px-3 py-2 text-sm text-neutral-500">No repository files were cited.</li>}
+        {sources.length === 0 && <li className="px-3 py-2 text-sm text-fg-secondary">No repository files were cited.</li>}
       </ul>
 
       <button
@@ -617,8 +617,8 @@ function Sources({
           {result.answer && result.answer.answer.claims.length > 0 && <ClaimList claims={result.answer.answer.claims} />}
           {result.findings.length > 0 && (
             <div>
-              <h4 className="text-xs font-semibold uppercase tracking-wide text-neutral-500">What RepoLab did</h4>
-              <ul className="mt-1 list-disc pl-5 text-xs text-neutral-500">
+              <h4 className="text-xs font-semibold uppercase tracking-wide text-fg-secondary">What RepoLab did</h4>
+              <ul className="mt-1 list-disc pl-5 text-xs text-fg-secondary">
                 {result.findings.map((finding, i) => (
                   <li key={i}>{finding}</li>
                 ))}
@@ -626,7 +626,7 @@ function Sources({
             </div>
           )}
           {result.answer?.dropped && Object.keys(result.answer.dropped).length > 0 && (
-            <p className="text-xs text-neutral-500" data-testid="layout-dropped">
+            <p className="text-xs text-fg-secondary" data-testid="layout-dropped">
               Removed by verification:{" "}
               {Object.entries(result.answer.dropped)
                 .map(([reason, n]) => `${n} × ${reason}`)
@@ -643,14 +643,14 @@ function Sources({
 function Excerpt({ source }: { source: CitedSource }) {
   const lines = excerptRange(source.reference!, source.line);
   return (
-    <pre className="max-h-64 overflow-auto rounded bg-neutral-100 py-2 font-mono text-xs leading-relaxed dark:bg-neutral-900">
+    <pre className="max-h-64 overflow-auto rounded bg-surface-subtle py-2 font-mono text-xs leading-relaxed">
       {lines.map((line, i) => (
         <div
           key={i}
           data-cited={line.cited || undefined}
-          className={`flex gap-3 px-2 ${line.cited ? "bg-amber-100 dark:bg-amber-950/60" : ""}`}
+          className={`flex gap-3 px-2 ${line.cited ? "bg-exp-soft" : ""}`}
         >
-          <span className="w-8 shrink-0 select-none text-right text-neutral-400">{line.number ?? ""}</span>
+          <span className="w-8 shrink-0 select-none text-right text-fg-muted">{line.number ?? ""}</span>
           <span className="whitespace-pre">{line.text}</span>
         </div>
       ))}
@@ -683,14 +683,14 @@ export function CodeDrawer({
       role="dialog"
       aria-label={`Source: ${source.path}`}
       data-testid="code-drawer"
-      className="fixed inset-x-0 bottom-0 z-40 max-h-[70vh] overflow-y-auto border-t border-neutral-200 bg-white p-4 shadow-xl dark:border-neutral-800 dark:bg-neutral-950 md:inset-y-0 md:left-auto md:right-0 md:max-h-none md:w-[32rem] md:border-l md:border-t-0"
+      className="fixed inset-x-0 bottom-0 z-40 max-h-[70vh] overflow-y-auto border-t border-line bg-surface p-4 shadow-xl md:inset-y-0 md:left-auto md:right-0 md:max-h-none md:w-[32rem] md:border-l md:border-t-0"
     >
       <header className="flex items-start justify-between gap-3">
         <p className="min-w-0 break-all font-mono text-sm font-medium">
           {source.path}
           {source.line ? `:${source.line}` : ""}
         </p>
-        <button type="button" onClick={onClose} aria-label="Close" className="shrink-0 text-lg leading-none text-neutral-500">
+        <button type="button" onClick={onClose} aria-label="Close" className="shrink-0 text-lg leading-none text-fg-secondary">
           ×
         </button>
       </header>
@@ -698,10 +698,10 @@ export function CodeDrawer({
         {source.reference ? (
           <Excerpt source={source} />
         ) : (
-          <p className="text-xs text-neutral-500">RepoLab did not keep an excerpt of this file.</p>
+          <p className="text-xs text-fg-secondary">RepoLab did not keep an excerpt of this file.</p>
         )}
       </div>
-      <h4 className="mt-4 text-xs font-semibold uppercase tracking-wide text-neutral-500">Why this matters</h4>
+      <h4 className="mt-4 text-xs font-semibold uppercase tracking-wide text-fg-secondary">Why this matters</h4>
       <p className="mt-1 text-sm" data-testid="drawer-reason">
         {source.reason}
       </p>

@@ -43,7 +43,7 @@ export function CliResults({
             ? `Comparing ${plan.variants.length} variants on ${plan.environment.version ?? "the built node"}`
             : undefined
         }
-        action={<Badge tone={finished ? "good" : "live"}>{experiment.status}</Badge>}
+        action={<Badge tone={finished ? "good" : "exp"}>{experiment.status}</Badge>}
       >
         <div className="flex flex-col gap-4">
           {experiment.triage && <TriageNote triage={experiment.triage} />}
@@ -58,7 +58,7 @@ export function CliResults({
             <Stat label="Commit" value={shortHash(experiment.commit_sha)} />
           </dl>
           {plan && (
-            <p className="text-sm text-neutral-600 dark:text-neutral-400">
+            <p className="text-sm text-fg-secondary">
               <span className="font-medium">Hypothesis:</span> {plan.hypothesis}
             </p>
           )}
@@ -81,7 +81,7 @@ export function CliResults({
               <div key={variant.variant_id}>
                 <h4 className="text-sm font-semibold">
                   {variant.label}
-                  <span className="ml-2 text-xs font-normal text-neutral-500">
+                  <span className="ml-2 text-xs font-normal text-fg-secondary">
                     {variant.runs} run{variant.runs === 1 ? "" : "s"}
                     {variant.failed_statements > 0 &&
                       ` · ${variant.failed_statements} statement failure(s)`}
@@ -90,7 +90,7 @@ export function CliResults({
                 <div className="mt-2 overflow-x-auto">
                   <table className="w-full border-collapse text-left text-xs">
                     <thead>
-                      <tr className="border-b border-neutral-200 text-neutral-500 dark:border-neutral-800">
+                      <tr className="border-b border-line text-fg-secondary">
                         <th className="py-1 pr-4 font-medium">statement</th>
                         <th className="py-1 pr-4 font-medium">succeeded</th>
                         <th className="py-1 pr-4 font-medium">rows</th>
@@ -104,7 +104,7 @@ export function CliResults({
                       {variant.statements.map((statement) => (
                         <tr
                           key={statement.index}
-                          className="border-b border-neutral-100 align-top dark:border-neutral-900"
+                          className="border-b border-line align-top"
                         >
                           <td className="max-w-md py-1 pr-4 break-words">{statement.statement}</td>
                           <td className="py-1 pr-4">
@@ -123,13 +123,13 @@ export function CliResults({
                           <td className="py-1 pr-4">
                             {statement.rows_median ?? "—"}
                             {!statement.rows_stable && (
-                              <span className="ml-1 text-amber-600">varied</span>
+                              <span className="ml-1 text-exp-fg">varied</span>
                             )}
                           </td>
-                          <td className="max-w-md py-1 pr-4 break-words text-red-700 dark:text-red-400">
+                          <td className="max-w-md py-1 pr-4 break-words text-danger-fg">
                             {statement.error_classes.join(", ") || "—"}
                             {statement.error_message && (
-                              <p className="mt-0.5 text-[10px] text-neutral-500">
+                              <p className="mt-0.5 text-xs text-fg-secondary">
                                 {statement.error_message}
                               </p>
                             )}
@@ -142,7 +142,7 @@ export function CliResults({
                 </div>
               </div>
             ))}
-            <p className="text-xs text-neutral-400">
+            <p className="text-xs text-fg-muted">
               * Each time is the wall clock for a whole cqlsh invocation, including starting
               cqlsh, so small differences between them are not meaningful.
             </p>
@@ -179,7 +179,7 @@ export function CliResults({
             </p>
             <ClaimList claims={explanation.explanation.explanation.claims} />
             {explanation.explanation.explanation.caveats.length > 0 && (
-              <ul className="list-disc pl-5 text-sm text-neutral-600 dark:text-neutral-400">
+              <ul className="list-disc pl-5 text-sm text-fg-secondary">
                 {explanation.explanation.explanation.caveats.map((caveat) => (
                   <li key={caveat}>{caveat}</li>
                 ))}
@@ -222,7 +222,7 @@ export function CliResults({
             <Stat label="Memory" value={experiment.reproducibility.memory ?? "—"} />
             <Stat label="Repeats" value={String(experiment.reproducibility.repeats)} />
           </dl>
-          <p className="mt-3 text-xs text-neutral-500">{experiment.reproducibility.isolation}</p>
+          <p className="mt-3 text-xs text-fg-secondary">{experiment.reproducibility.isolation}</p>
         </Panel>
       )}
     </div>

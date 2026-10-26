@@ -55,12 +55,12 @@ export function BarChart({
     <figure data-testid={`chart-${title.replace(/\s+/g, "-").toLowerCase()}`}>
       <figcaption className="mb-2 flex items-center gap-2">
         <span className="text-xs font-semibold">{title}</span>
-        {unit && <span className="text-xs text-neutral-500">({unit})</span>}
+        {unit && <span className="text-xs text-fg-secondary">({unit})</span>}
         {determinism && <DeterminismTag kind={determinism} />}
       </figcaption>
 
       {bars.length === 0 ? (
-        <p className="py-4 text-xs text-neutral-500">{emptyMessage}</p>
+        <p className="py-4 text-xs text-fg-secondary">{emptyMessage}</p>
       ) : (
         <div className="flex flex-col gap-1">
           {bars.map((bar) => {
@@ -74,22 +74,22 @@ export function BarChart({
               >
                 <span
                   className={`w-14 shrink-0 text-right font-mono ${
-                    bar.baseline ? "font-semibold" : "text-neutral-500"
+                    bar.baseline ? "font-semibold" : "text-fg-secondary"
                   }`}
                 >
                   {bar.label ?? bar.key}
                 </span>
 
-                <div className="relative h-5 flex-1 overflow-hidden rounded bg-neutral-100 dark:bg-neutral-900">
+                <div className="relative h-5 flex-1 overflow-hidden rounded bg-surface-subtle">
                   {bar.pending ? (
-                    <div className="h-full w-full animate-pulse bg-neutral-200 dark:bg-neutral-800" />
+                    <div className="h-full w-full animate-pulse bg-line" />
                   ) : (
                     <>
                       <div
                         className={`h-full rounded transition-[width] duration-500 ${
                           bar.baseline
-                            ? "bg-neutral-700 dark:bg-neutral-300"
-                            : "bg-sky-500/80 dark:bg-sky-400/80"
+                            ? "bg-fg-muted"
+                            : "bg-brand/80"
                         }`}
                         style={{ width: `${width}%` }}
                       />
@@ -97,7 +97,7 @@ export function BarChart({
                         <div
                           aria-hidden
                           title={`spread ${format(bar.spread)}`}
-                          className="absolute top-1/2 h-2 -translate-y-1/2 border-x border-neutral-500/70"
+                          className="absolute top-1/2 h-2 -translate-y-1/2 border-x border-line-strong/70"
                           style={{
                             left: `${width}%`,
                             width: `${Math.min(12, (bar.spread / max) * 100)}%`,
@@ -113,7 +113,7 @@ export function BarChart({
                 </span>
                 <span
                   className={`w-16 shrink-0 text-right font-mono ${
-                    bar.baseline ? "text-neutral-500" : "text-neutral-400"
+                    bar.baseline ? "text-fg-secondary" : "text-fg-muted"
                   }`}
                 >
                   {bar.note ?? ""}
@@ -155,15 +155,15 @@ export function ProportionBar({
           {part.toLocaleString()} / {whole.toLocaleString()} ({(fraction * 100).toFixed(1)}%)
         </span>
       </div>
-      <div className="mt-1 h-3 overflow-hidden rounded bg-neutral-100 dark:bg-neutral-900">
+      <div className="mt-1 h-3 overflow-hidden rounded bg-surface-subtle">
         <div
           className={`h-full rounded transition-[width] duration-500 ${
-            tone === "warn" ? "bg-amber-500/80" : "bg-sky-500/80"
+            tone === "warn" ? "bg-exp/80" : "bg-brand/80"
           }`}
           style={{ width: `${Math.min(100, fraction * 100)}%` }}
         />
       </div>
-      <p className="mt-1 text-xs text-neutral-500 dark:text-neutral-400">{wholeLabel}</p>
+      <p className="mt-1 text-xs text-fg-secondary">{wholeLabel}</p>
     </div>
   );
 }
@@ -194,7 +194,7 @@ export function Sparkline({ samples, width = 90, height = 20 }: {
       viewBox={`0 0 ${width} ${height}`}
       role="img"
       aria-label={`${samples.length} samples from ${min} to ${max}`}
-      className="text-neutral-400"
+      className="text-fg-muted"
     >
       <polyline points={points} fill="none" stroke="currentColor" strokeWidth="1.5" />
     </svg>

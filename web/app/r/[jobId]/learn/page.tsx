@@ -358,14 +358,14 @@ export default function LearnPage() {
                 {experience.available ? "real environment" : "unavailable"}
               </Badge>
               {experience.version && (
-                <span className="font-mono text-xs text-neutral-500">{experience.version}</span>
+                <span className="font-mono text-xs text-fg-secondary">{experience.version}</span>
               )}
             </div>
           }
         >
           <div className="grid gap-4 sm:grid-cols-2">
             <div>
-              <h3 className="text-xs font-semibold uppercase tracking-wide text-neutral-500">
+              <h3 className="text-xs font-semibold uppercase tracking-wide text-fg-secondary">
                 What this environment can do
               </h3>
               <ul className="mt-1 flex flex-col gap-1 text-sm">
@@ -375,10 +375,10 @@ export default function LearnPage() {
               </ul>
             </div>
             <div>
-              <h3 className="text-xs font-semibold uppercase tracking-wide text-neutral-500">
+              <h3 className="text-xs font-semibold uppercase tracking-wide text-fg-secondary">
                 What it cannot
               </h3>
-              <ul className="mt-1 flex flex-col gap-1 text-sm text-neutral-600 dark:text-neutral-400">
+              <ul className="mt-1 flex flex-col gap-1 text-sm text-fg-secondary">
                 {experience.limitations.map((item) => (
                   <li key={item}>{item}</li>
                 ))}
@@ -401,13 +401,13 @@ export default function LearnPage() {
           title="No environment yet"
           subtitle={environment.reason || "No environment has finished building yet."}
         >
-          <p className="text-sm text-neutral-600 dark:text-neutral-400">
+          <p className="text-sm text-fg-secondary">
             RepoLab resolves one through the whole fidelity ladder: the requested commit built from
             source, the official release, a reduced single node, and a conceptual Mini Lab if none
             of those can be produced. The first rung to pass its smoke test is the one you start on;
             a better one is offered later, never forced.
           </p>
-          <p className="mt-2 text-xs text-neutral-500">
+          <p className="mt-2 text-xs text-fg-secondary">
             This compiles source, pulls a release and starts a node with 4 GB of memory, so it needs
             your say-so. Expect a few minutes.
           </p>
@@ -416,12 +416,12 @@ export default function LearnPage() {
             onClick={build}
             disabled={buildJob !== null}
             data-testid="build-environment"
-            className="mt-3 rounded bg-neutral-900 px-3 py-1.5 text-xs font-medium text-white disabled:opacity-40 dark:bg-neutral-100 dark:text-neutral-900"
+            className="mt-3 rounded bg-brand px-3 py-1.5 text-xs font-medium text-white disabled:opacity-40"
           >
             {buildJob ? "Building — watch the agent activity" : "Build an environment"}
           </button>
           {buildJob && (
-            <p className="mt-2 text-xs text-neutral-500" data-testid="build-job">
+            <p className="mt-2 text-xs text-fg-secondary" data-testid="build-job">
               Resolving in a worker. The terminal opens as soon as a rung passes its smoke test.
             </p>
           )}
@@ -431,12 +431,12 @@ export default function LearnPage() {
       {session?.upgrade && (
         <div
           data-testid="upgrade-offer"
-          className="rounded-lg border-2 border-sky-400 bg-sky-50 p-4 dark:border-sky-800 dark:bg-sky-950/40"
+          className="rounded-lg border-2 border-brand bg-brand-soft p-4"
         >
-          <p className="text-sm font-semibold text-sky-900 dark:text-sky-200">
+          <p className="text-sm font-semibold text-brand-fg">
             {session.upgrade.describe}
           </p>
-          <p className="mt-1 text-xs text-sky-800 dark:text-sky-300">
+          <p className="mt-1 text-xs text-brand-fg">
             {session.upgrade_disclosure}
           </p>
           <button
@@ -444,7 +444,7 @@ export default function LearnPage() {
             onClick={upgrade}
             data-testid="accept-upgrade"
             disabled={session.busy}
-            className="mt-3 rounded bg-sky-700 px-3 py-1.5 text-xs font-medium text-white disabled:opacity-40"
+            className="mt-3 rounded bg-brand px-3 py-1.5 text-xs font-medium text-white disabled:opacity-40"
           >
             {session.busy
               ? "Waiting for the current statement to finish…"
@@ -457,7 +457,7 @@ export default function LearnPage() {
         <div className="flex min-w-0 flex-col gap-4">
           {!simulated && environment?.ready && !session && (
             <Panel title="Terminal">
-              <p className="text-sm text-neutral-600 dark:text-neutral-400">
+              <p className="text-sm text-fg-secondary">
                 A terminal runs inside its own container, restored from the checkpoint this build
                 produced. Starting one takes a moment while Cassandra accepts its first connection.
               </p>
@@ -466,7 +466,7 @@ export default function LearnPage() {
                 onClick={start}
                 disabled={starting}
                 data-testid="start-session"
-                className="mt-3 rounded bg-neutral-900 px-3 py-1.5 text-xs font-medium text-white disabled:opacity-40 dark:bg-neutral-100 dark:text-neutral-900"
+                className="mt-3 rounded bg-brand px-3 py-1.5 text-xs font-medium text-white disabled:opacity-40"
               >
                 {starting ? "Starting…" : "Start a terminal"}
               </button>
@@ -486,7 +486,7 @@ export default function LearnPage() {
                 onResult={onResult}
                 onStatusChange={setStatus}
               />
-              <p className="mt-2 text-[11px] text-neutral-400">
+              <p className="mt-2 text-xs text-fg-muted">
                 {session.cli_command} inside the {session.build_kind.replace("_", " ")} environment
                 · statements are checked against an allowlist before they are run
                 {status === "open" ? "" : " · waiting for the environment"}
@@ -523,7 +523,7 @@ export default function LearnPage() {
                     type="button"
                     onClick={generate}
                     data-testid="generate-lesson"
-                    className="rounded border border-neutral-300 px-3 py-1.5 text-xs dark:border-neutral-700"
+                    className="rounded border border-line-strong px-3 py-1.5 text-xs"
                   >
                     Write one with Nemotron
                   </button>
@@ -533,7 +533,7 @@ export default function LearnPage() {
 
               {simulatedLesson && (
                 <>
-                  <p className="text-sm text-amber-900 dark:text-amber-200">
+                  <p className="text-sm text-exp-fg">
                     {simulatedLesson.notice}
                   </p>
                   <SimulatedLessonBody lesson={simulatedLesson} />
@@ -568,10 +568,10 @@ export default function LearnPage() {
                       data-testid={`goto-step-${item.number}`}
                       className={`h-7 w-7 rounded text-xs ${
                         item.number === current
-                          ? "bg-neutral-900 text-white dark:bg-neutral-100 dark:text-neutral-900"
+                          ? "bg-brand text-white"
                           : completed.includes(item.number)
-                            ? "bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-300"
-                            : "border border-neutral-300 text-neutral-500 dark:border-neutral-700"
+                            ? "bg-run-soft text-run-fg"
+                            : "border border-line-strong text-fg-secondary"
                       }`}
                     >
                       {item.number}

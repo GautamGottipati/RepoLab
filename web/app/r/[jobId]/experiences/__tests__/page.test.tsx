@@ -238,3 +238,26 @@ describe("when nothing real can run", () => {
     expect(screen.getByTestId("unavailable-cli").textContent).toContain(NOT_RUNNABLE);
   });
 });
+
+describe("categories", () => {
+  it("offers filters only when there is more than one kind of experience, and filters by them", async () => {
+    calls.experiences.mockResolvedValue(catalog());
+    calls.experienceList.mockResolvedValue(sparkListing());
+    render(<ExperiencesPage />);
+    await screen.findByTestId("primary-experience");
+    const filters = screen.getByRole("radiogroup", { name: "Filter experiences" });
+    expect(within(filters).getAllByRole("radio").map((r) => r.textContent)).toEqual(["Recommended", "Data processing", "SQL"]);
+    fireEvent.click(within(filters).getByRole("radio", { name: "SQL" }));
+    expect(screen.queryByTestId("primary-experience")).toBeNull();
+    expect(screen.getAllByTestId("experience-card").map((c) => c.getAttribute("data-experience-id"))).toEqual(["spark:sql"]);
+  });
+
+  it("gives each card one obvious action", async () => {
+    calls.experiences.mockResolvedValue(catalog());
+    calls.experienceList.mockResolvedValue(sparkListing());
+    render(<ExperiencesPage />);
+    for (const card of await screen.findAllByTestId("experience-card")) {
+      expect(within(card).getAllByRole("button").length).toBeLessThanOrEqual(card.querySelectorAll("[data-strategy]").length || 1);
+    }
+  });
+});

@@ -1,6 +1,6 @@
 # RepoLab Progress
 
-Last updated: 2026-10-24 (Experiences: what can I actually do with this software?)
+Last updated: 2026-10-25 (UI/UX redesign: a learning environment, not a dashboard)
 
 ---
 
@@ -2560,6 +2560,109 @@ Docker and Nemotron):
   cannot upload their own yet.
 - **No Playwright run** of the new flow, and no `next build` (the dev server holds
   `.next`).
+
+---
+
+### Phase 20 — UI/UX redesign: a learning environment, not a dashboard
+
+Frontend only; no backend or API changes. The flow a newcomer follows is now
+Overview → Experience → Architecture → Ask → Experiment, and every concept keeps
+one colour everywhere.
+
+**Design system** (`web/app/globals.css`, `web/components/kit/`, documented in
+`docs/design/00-overview.md`):
+
+- Semantic tokens with light and dark values, both following the OS:
+  - brand (indigo), ai (violet), arch (cyan), run (emerald), exp (amber),
+    danger (rose);
+  - neutrals (canvas, surface, fg, line …);
+  - code surfaces (dark in both themes) and a navy landing.
+- Type scale (12px floor), radius, shadows, motion, one focus ring, and
+  `prefers-reduced-motion`.
+- Primitives: Button/ButtonLink, Badge, StatusBadge (dot + word), Card, Section,
+  PageHeader, CodeSurface, Metric, EmptyState, ErrorState, ProgressSteps, Tabs
+  (keyboard), Chips, Drawer (focus trap, Esc, bottom sheet on mobile),
+  ActionLink/ActionButton (the five semantic actions), inline icons.
+- `components/ui.tsx` re-exports them, so no call site broke.
+- A context-aware sweep replaced about 800 neutral palette classes and 430
+  `dark:` pairs with tokens. Red became rose, and sky info colours became brand.
+
+**Pages:**
+
+- **Shell.**
+  - The repository name leads; the commit and status are secondary.
+  - Four tabs: Overview, Experiences, Architecture, Ask RepoLab.
+  - Playground and Learn are reached from Experiences.
+  - Agent activity is a one-line chip that opens a drawer, so there is no
+    permanent 320px column.
+- **Overview** (was Investigation).
+  - While the investigation runs: the real announced phases.
+  - Then: name, one line, languages; "What is this?" (tagged when Nemotron wrote
+    it); **Start here**, the recommended experience with one action; key
+    components linking to Architecture; other ways in; a dismissible first-visit
+    hint.
+  - The raw findings sit under "View analysis details". A section with no data
+    is left out.
+- **Experiences.**
+  - Cards say what you'll do and learn, the category, a status dot, the reality
+    badge and one primary action.
+  - Category chips appear when there are two or more kinds.
+  - "No runnable experiences" says why, what RepoLab runs, and what to do.
+- **Experience workspace.** Three areas: guide, dark code surface, result.
+  - The guide's ticks come from session state: ran, explained.
+  - The result has tabs: Result, Plan, Logs, Raw.
+  - Execution details show measured values only.
+  - Actions: Explain (violet), Show architecture (cyan), Experiment (amber),
+    View source.
+  - Preparation and failure use step lists, with the log and "Ask about this
+    error".
+- **Architecture.**
+  - A perspectives rail: Overview, Core components, Execution flow, Learning
+    path, Source code, Related experiments. Each shows sections that already
+    existed.
+  - The canvas has neutral boxes with a role stripe; the selection is cyan,
+    connected nodes are emphasised and the rest dimmed.
+  - The details panel is beside the canvas, or a bottom sheet on narrow screens.
+- **Ask RepoLab.**
+  - A violet page header, a larger question box and suggested-question chips.
+  - Answers sit in a violet-ruled card, with Show in architecture / Try it in
+    an experience.
+  - The experiment approval card is amber.
+- **Landing.**
+  - Navy hero, with the repository URL as the dominant action.
+  - Examples verified in earlier phases: pyspark-example-project, apache/spark,
+    pallets/click, apache/cassandra.
+  - Four value props and an accurate isolation note.
+
+**Tests and checks:**
+
+- 105 web tests pass (was 82). New ones cover the kit, shell, Overview,
+  categories, guide, perspectives and selection dimming.
+- Two assertions changed deliberately: preparation steps are checked by state
+  rather than by ✓/→ glyphs, and the learning path is one click away.
+- `tsc`, ESLint and `next build` are clean. Backend pytest is unchanged and
+  passes.
+- E2E specs were updated for the Overview tab, the activity drawer and
+  experiences-as-entry-points, but **were not run**: they need the full stack
+  and a long investigation.
+- Screenshots of landing, Overview (light, dark, 390px), Experiences, the Spark
+  session (light and dark), Architecture with a selection (desktop and mobile)
+  and Ask were reviewed against the stored apache/spark investigation. Fixes
+  that came out of them:
+  - an over-long Ask button that scrolled the mobile page;
+  - an overflowing details panel;
+  - an outside disclosure marker.
+
+**Remaining UX limitations:**
+
+- No difficulty on experience cards: the backend has no such field, and one
+  is not invented.
+- Library experiences have no "understand" mapping, so their guide is short.
+- The concept canvas scrolls horizontally on phones rather than reflowing.
+- Long Nemotron explanations make the experience result column long.
+- Metrics, Playground, Learn and the experiment results page were token-restyled
+  only, not redesigned.
+- The `ask/[experimentId]` page keeps its earlier layout.
 
 ---
 

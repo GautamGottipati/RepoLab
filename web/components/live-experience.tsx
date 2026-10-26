@@ -112,7 +112,7 @@ export function LiveExperience({ jobId, repoUrl, commitSha }: { jobId: string; r
   const lastMessage = [...events].reverse().find((e) => e.message)?.message ?? null;
 
   return (
-    <section className="flex flex-col gap-4 rounded-lg border border-neutral-200 p-4 dark:border-neutral-800" data-testid="live-experience">
+    <section className="flex flex-col gap-4 rounded-lg border border-line p-4" data-testid="live-experience">
       <header className="flex flex-wrap items-center gap-3">
         <h2 className="text-sm font-semibold">Run it in RepoLab</h2>
         {state && <StatusBadge status={state.status} />}
@@ -123,27 +123,27 @@ export function LiveExperience({ jobId, repoUrl, commitSha }: { jobId: string; r
               onClick={start}
               disabled={starting}
               data-testid="start-runtime"
-              className="rounded bg-neutral-900 px-3 py-1.5 text-xs font-medium text-white disabled:opacity-50 dark:bg-neutral-100 dark:text-neutral-900"
+              className="rounded bg-brand px-3 py-1.5 text-xs font-medium text-white disabled:opacity-50"
             >
               {starting ? "Starting…" : state?.status === "stopped" ? "Start again" : "Start application"}
             </button>
           )}
           {launched && (
-            <button type="button" onClick={stop} data-testid="stop-runtime" className="rounded border border-neutral-300 px-3 py-1.5 text-xs dark:border-neutral-700">
+            <button type="button" onClick={stop} data-testid="stop-runtime" className="rounded border border-line-strong px-3 py-1.5 text-xs">
               Stop
             </button>
           )}
         </div>
       </header>
       {!launched && (
-        <p className="text-xs text-neutral-500">
+        <p className="text-xs text-fg-secondary">
           Each service runs in its own container, on a private network with no internet access,
           reachable only through RepoLab. Starting it installs its dependencies, which can take a few minutes.
         </p>
       )}
-      {error && <p className="text-sm text-red-700 dark:text-red-300">{error}</p>}
+      {error && <p className="text-sm text-danger-fg">{error}</p>}
       {launched && lastMessage && state && ACTIVE.has(state.status) && (
-        <p className="font-mono text-xs text-neutral-500" data-testid="runtime-latest">{lastMessage}</p>
+        <p className="font-mono text-xs text-fg-secondary" data-testid="runtime-latest">{lastMessage}</p>
       )}
 
       {plan.dependencies.length > 0 && <Dependencies dependencies={plan.dependencies} />}
@@ -168,15 +168,15 @@ export function LiveExperience({ jobId, repoUrl, commitSha }: { jobId: string; r
 function Dependencies({ dependencies }: { dependencies: RuntimeDependency[] }) {
   return (
     <div data-testid="runtime-dependencies">
-      <h3 className="text-xs font-semibold uppercase tracking-wide text-neutral-500">Needs</h3>
+      <h3 className="text-xs font-semibold uppercase tracking-wide text-fg-secondary">Needs</h3>
       <ul className="mt-1 flex flex-col gap-1 text-sm">
         {dependencies.map((dependency) => (
           <li key={dependency.kind} data-state={dependency.state}>
             <span className="font-medium">{dependency.kind === "mongodb" ? "MongoDB" : dependency.kind === "postgres" ? "PostgreSQL" : "Redis"}</span>
-            <span className={`ml-2 text-xs ${dependency.state === "provisionable" ? "text-emerald-700 dark:text-emerald-300" : "text-amber-700 dark:text-amber-300"}`}>
+            <span className={`ml-2 text-xs ${dependency.state === "provisionable" ? "text-run-fg" : "text-exp-fg"}`}>
               {DEPENDENCY_LABEL[dependency.state]}
             </span>
-            {dependency.state !== "provisionable" && <p className="text-xs text-neutral-500">{dependency.reason}.</p>}
+            {dependency.state !== "provisionable" && <p className="text-xs text-fg-secondary">{dependency.reason}.</p>}
           </li>
         ))}
       </ul>
@@ -204,14 +204,14 @@ function ServiceCard({
   const live = runtime?.status === "running" && origin !== null;
 
   return (
-    <li className="rounded border border-neutral-200 dark:border-neutral-800" data-testid={`service-${plan.name}`} data-status={runtime?.status ?? "planned"}>
-      <div className="flex flex-wrap items-center gap-2 border-b border-neutral-200 px-3 py-2 dark:border-neutral-800">
+    <li className="rounded border border-line" data-testid={`service-${plan.name}`} data-status={runtime?.status ?? "planned"}>
+      <div className="flex flex-wrap items-center gap-2 border-b border-line px-3 py-2">
         <span aria-hidden>{isWeb ? "🌐" : "🔌"}</span>
         <span className="text-sm font-semibold">{isWeb ? "Web application" : "HTTP API"}</span>
-        <span className="font-mono text-xs text-neutral-500">{plan.working_directory || "./"}</span>
+        <span className="font-mono text-xs text-fg-secondary">{plan.working_directory || "./"}</span>
         {runtime && <StatusBadge status={runtime.status} />}
         {live && isWeb && (
-          <a href={origin} target="_blank" rel="noreferrer" data-testid={`open-${plan.name}`} className="ml-auto rounded bg-neutral-900 px-3 py-1 text-xs font-medium text-white dark:bg-neutral-100 dark:text-neutral-900">
+          <a href={origin} target="_blank" rel="noreferrer" data-testid={`open-${plan.name}`} className="ml-auto rounded bg-brand px-3 py-1 text-xs font-medium text-white">
             Open application ↗
           </a>
         )}
@@ -242,11 +242,11 @@ function PlanSummary({ plan }: { plan: ServicePlan }) {
     <dl className="grid grid-cols-[auto_minmax(0,1fr)] gap-x-3 gap-y-1 text-xs" data-testid={`plan-${plan.name}`}>
       {rows.map(([label, value, why]) => (
         <div key={label} className="contents">
-          <dt className="text-neutral-500">{label}</dt>
+          <dt className="text-fg-secondary">{label}</dt>
           <dd className="min-w-0">
             <code className="break-all font-mono">{value}</code>
             {why && (
-              <span className="ml-2 text-neutral-500">
+              <span className="ml-2 text-fg-secondary">
                 — {why}
                 {plan.inferred_fields.includes(label === "Runtime" ? "image" : label.toLowerCase()) && <em className="ml-1">(inferred)</em>}
               </span>
@@ -271,30 +271,30 @@ function Progress({ plan, runtime, repoUrl, commitSha }: { plan: ServicePlan; ru
         {phases.map((phase, i) => {
           const mark = i < index || runtime.status === "running" ? "done" : i === index ? (failed ? "failed" : "active") : "pending";
           return (
-            <li key={phase.status} data-mark={mark} className={mark === "pending" ? "text-neutral-400" : mark === "failed" ? "text-red-700 dark:text-red-300" : ""}>
+            <li key={phase.status} data-mark={mark} className={mark === "pending" ? "text-fg-muted" : mark === "failed" ? "text-danger-fg" : ""}>
               <span aria-hidden className="mr-2 inline-block w-3">{mark === "done" ? "✓" : mark === "active" ? "→" : mark === "failed" ? "✗" : "○"}</span>
               {phase.label}
-              {phase.status === "installing" && cached && mark === "done" && <span className="ml-2 text-xs text-neutral-500">reused from an earlier run</span>}
+              {phase.status === "installing" && cached && mark === "done" && <span className="ml-2 text-xs text-fg-secondary">reused from an earlier run</span>}
             </li>
           );
         })}
       </ol>
       {failed && runtime.failure && (
-        <div className="rounded border border-red-200 bg-red-50 p-3 text-sm dark:border-red-900 dark:bg-red-950/40" data-testid={`failure-${plan.name}`}>
+        <div className="rounded border border-danger-line bg-danger-soft p-3 text-sm" data-testid={`failure-${plan.name}`}>
           <p className="font-medium">{plan.surfaces.includes("web") ? "The web application" : "The API"} could not start</p>
           <p className="mt-1">{runtime.failure.reason}</p>
           {runtime.failure.evidence.length > 0 && (
-            <p className="mt-1 text-xs text-neutral-600 dark:text-neutral-400">
+            <p className="mt-1 text-xs text-fg-secondary">
               Detected from: <Refs refs={runtime.failure.evidence} repoUrl={repoUrl} commitSha={commitSha} />
             </p>
           )}
-          {runtime.failure.next_step && <p className="mt-1 text-xs text-neutral-600 dark:text-neutral-400">Next: {runtime.failure.next_step}</p>}
+          {runtime.failure.next_step && <p className="mt-1 text-xs text-fg-secondary">Next: {runtime.failure.next_step}</p>}
         </div>
       )}
       {(runtime.failure?.log_tail || runtime.steps.some((s) => s.log_tail)) && (
         <details className="text-xs" data-testid={`logs-${plan.name}`}>
-          <summary className="cursor-pointer text-neutral-500">View logs</summary>
-          <pre className="mt-1 max-h-72 overflow-auto rounded bg-neutral-100 p-2 font-mono text-[11px] leading-relaxed dark:bg-neutral-900">
+          <summary className="cursor-pointer text-fg-secondary">View logs</summary>
+          <pre className="mt-1 max-h-72 overflow-auto rounded bg-surface-subtle p-2 font-mono text-xs leading-relaxed">
             {[...runtime.steps.filter((s) => s.log_tail).map((s) => `$ ${s.command ?? s.name}\n${s.log_tail}`), runtime.failure?.log_tail ?? ""]
               .filter(Boolean)
               .join("\n\n")}
@@ -309,7 +309,7 @@ function Preview({ origin, name }: { origin: string; name: string }) {
   const [key, setKey] = useState(0);
   return (
     <div className="flex flex-col gap-2" data-testid={`preview-${name}`}>
-      <div className="flex items-center gap-3 text-xs text-neutral-500">
+      <div className="flex items-center gap-3 text-xs text-fg-secondary">
         <span className="min-w-0 truncate font-mono">{origin}</span>
         <button type="button" onClick={() => setKey((k) => k + 1)} className="ml-auto underline underline-offset-2">Reload</button>
       </div>
@@ -318,7 +318,7 @@ function Preview({ origin, name }: { origin: string; name: string }) {
         src={origin}
         title={`Live ${name}`}
         sandbox="allow-scripts allow-forms allow-same-origin allow-popups"
-        className="h-[32rem] w-full rounded border border-neutral-200 bg-white dark:border-neutral-800"
+        className="h-[32rem] w-full rounded border border-line bg-surface"
       />
     </div>
   );
@@ -377,58 +377,58 @@ function Explorer({
 
   return (
     <div className="flex flex-col gap-3" data-testid={`explorer-${service}`}>
-      <p className="text-xs text-neutral-500">
+      <p className="text-xs text-fg-secondary">
         Base URL <code className="font-mono">{origin}</code>
       </p>
       {routes.length > 0 ? (
-        <ul className="flex max-h-56 flex-col overflow-y-auto rounded border border-neutral-200 text-xs dark:border-neutral-800" data-testid="endpoints">
+        <ul className="flex max-h-56 flex-col overflow-y-auto rounded border border-line text-xs" data-testid="endpoints">
           {routes.map((route) => (
             <li key={`${route.method} ${route.path}`}>
               <button
                 type="button"
                 onClick={() => choose(route)}
                 aria-pressed={selected === route}
-                className={`flex w-full items-baseline gap-3 px-2 py-1 text-left ${selected === route ? "bg-neutral-100 dark:bg-neutral-900" : ""}`}
+                className={`flex w-full items-baseline gap-3 px-2 py-1 text-left ${selected === route ? "bg-surface-subtle" : ""}`}
               >
                 <span className="w-14 shrink-0 font-mono font-semibold">{route.method}</span>
                 <span className="min-w-0 flex-1 break-all font-mono">{route.path}</span>
-                <span className="shrink-0 text-neutral-400">{route.file.split("/").pop()}:{route.line}</span>
+                <span className="shrink-0 text-fg-muted">{route.file.split("/").pop()}:{route.line}</span>
               </button>
             </li>
           ))}
         </ul>
       ) : (
-        <p className="text-xs text-neutral-500">RepoLab found no route declarations in the source; you can still send a request to any path.</p>
+        <p className="text-xs text-fg-secondary">RepoLab found no route declarations in the source; you can still send a request to any path.</p>
       )}
       {selected && (
-        <p className="text-xs text-neutral-500">
+        <p className="text-xs text-fg-secondary">
           Declared in <Refs refs={[{ path: selected.file, start_line: selected.line, end_line: null, commit_sha: commitSha, excerpt: null }]} repoUrl={repoUrl} commitSha={commitSha} />.
           RepoLab shows the route as the code declares it; it does not know the request body the handler expects.
         </p>
       )}
       <div className="flex flex-wrap gap-2">
-        <select value={method} onChange={(e) => setMethod(e.target.value)} aria-label="Method" className="rounded border border-neutral-300 px-2 py-1 font-mono text-xs dark:border-neutral-700 dark:bg-neutral-900">
+        <select value={method} onChange={(e) => setMethod(e.target.value)} aria-label="Method" className="rounded border border-line-strong px-2 py-1 font-mono text-xs">
           {["GET", "POST", "PUT", "PATCH", "DELETE"].map((m) => (
             <option key={m}>{m}</option>
           ))}
         </select>
-        <input value={path} onChange={(e) => setPath(e.target.value)} aria-label="Path" data-testid="explorer-path" className="min-w-0 flex-1 rounded border border-neutral-300 px-2 py-1 font-mono text-xs dark:border-neutral-700 dark:bg-neutral-900" />
-        <button type="button" onClick={send} disabled={sending || !path.startsWith("/")} data-testid="explorer-send" className="rounded bg-neutral-900 px-3 py-1 text-xs font-medium text-white disabled:opacity-50 dark:bg-neutral-100 dark:text-neutral-900">
+        <input value={path} onChange={(e) => setPath(e.target.value)} aria-label="Path" data-testid="explorer-path" className="min-w-0 flex-1 rounded border border-line-strong px-2 py-1 font-mono text-xs" />
+        <button type="button" onClick={send} disabled={sending || !path.startsWith("/")} data-testid="explorer-send" className="rounded bg-brand px-3 py-1 text-xs font-medium text-white disabled:opacity-50">
           {sending ? "Sending…" : "Send request"}
         </button>
       </div>
-      {path.includes("/:") && <p className="text-xs text-amber-700 dark:text-amber-300">Replace the :parameters in the path with real values.</p>}
+      {path.includes("/:") && <p className="text-xs text-exp-fg">Replace the :parameters in the path with real values.</p>}
       {!["GET", "HEAD", "DELETE"].includes(method) && (
-        <textarea value={body} onChange={(e) => setBody(e.target.value)} rows={4} aria-label="Request body (JSON)" placeholder='{ "title": "…" }' className="rounded border border-neutral-300 px-2 py-1 font-mono text-xs dark:border-neutral-700 dark:bg-neutral-900" />
+        <textarea value={body} onChange={(e) => setBody(e.target.value)} rows={4} aria-label="Request body (JSON)" placeholder='{ "title": "…" }' className="rounded border border-line-strong px-2 py-1 font-mono text-xs" />
       )}
-      {error && <p className="text-xs text-red-700 dark:text-red-300">{error}</p>}
+      {error && <p className="text-xs text-danger-fg">{error}</p>}
       {response && (
         <div data-testid="explorer-response">
           <p className="text-xs">
-            <span className={`font-mono font-semibold ${response.status_code < 400 ? "text-emerald-700 dark:text-emerald-300" : "text-red-700 dark:text-red-300"}`}>{response.status_code}</span>
-            <span className="ml-2 text-neutral-500">{response.elapsed_ms} ms{response.truncated ? " · truncated" : ""}</span>
+            <span className={`font-mono font-semibold ${response.status_code < 400 ? "text-run-fg" : "text-danger-fg"}`}>{response.status_code}</span>
+            <span className="ml-2 text-fg-secondary">{response.elapsed_ms} ms{response.truncated ? " · truncated" : ""}</span>
           </p>
-          <pre className="mt-1 max-h-72 overflow-auto rounded bg-neutral-100 p-2 font-mono text-[11px] dark:bg-neutral-900">{pretty || "(empty body)"}</pre>
+          <pre className="mt-1 max-h-72 overflow-auto rounded bg-surface-subtle p-2 font-mono text-xs">{pretty || "(empty body)"}</pre>
         </div>
       )}
     </div>
@@ -441,17 +441,17 @@ function Warnings({ warnings, repoUrl, commitSha }: { warnings: { message: strin
   return (
     <div className="flex flex-col gap-1 text-xs" data-testid="runtime-warnings">
       {important.map((warning) => (
-        <p key={warning.message} className="text-amber-800 dark:text-amber-300">
+        <p key={warning.message} className="text-exp-fg">
           ⚠ {warning.message}
           {warning.evidence.length > 0 && (
-            <span className="ml-1 text-neutral-500">
+            <span className="ml-1 text-fg-secondary">
               (<Refs refs={warning.evidence} repoUrl={repoUrl} commitSha={commitSha} />)
             </span>
           )}
         </p>
       ))}
       {adapted.map((warning) => (
-        <p key={warning.message} className="text-neutral-500">{warning.message}</p>
+        <p key={warning.message} className="text-fg-secondary">{warning.message}</p>
       ))}
     </div>
   );
@@ -483,5 +483,5 @@ export function StatusBadge({ status }: { status: RuntimeStatus }) {
   if (status === "running") return <Badge tone="good">● LIVE</Badge>;
   if (status === "stopped") return <Badge>stopped</Badge>;
   if (FAILED.has(status)) return <Badge tone="bad">{status.replace(/_/g, " ")}</Badge>;
-  return <Badge tone="live">{status.replace(/_/g, " ")}…</Badge>;
+  return <Badge tone="exp">{status.replace(/_/g, " ")}…</Badge>;
 }

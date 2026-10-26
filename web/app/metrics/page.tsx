@@ -61,7 +61,7 @@ export default function MetricsPage() {
         <Link href="/" className="text-sm font-semibold tracking-tight">
           RepoLab
         </Link>
-        <span aria-hidden className="text-neutral-300 dark:text-neutral-700">
+        <span aria-hidden className="text-fg-muted">
           /
         </span>
         <h1 className="text-lg font-semibold tracking-tight">Metrics</h1>
@@ -89,7 +89,7 @@ export default function MetricsPage() {
           {/* Whose activity this is. Stated first, because it changes how every
               figure below should be read. */}
           <p
-            className="rounded-lg border border-neutral-200 bg-neutral-50 px-4 py-3 text-sm text-neutral-600 dark:border-neutral-800 dark:bg-neutral-900 dark:text-neutral-400"
+            className="rounded-lg border border-line bg-surface-subtle px-4 py-3 text-sm text-fg-secondary"
             data-testid="provenance"
           >
             {dashboard.provenance.summary}
@@ -129,8 +129,8 @@ function Section({
 }) {
   return (
     <section data-testid={`section-${id}`}>
-      <h2 className="text-sm font-semibold uppercase tracking-wide text-neutral-500">{title}</h2>
-      <p className="mt-0.5 text-sm text-neutral-500">{subtitle}</p>
+      <h2 className="text-sm font-semibold uppercase tracking-wide text-fg-secondary">{title}</h2>
+      <p className="mt-0.5 text-sm text-fg-secondary">{subtitle}</p>
 
       <div className="mt-4 flex flex-col gap-4">
         {groups.map((group) => (
@@ -152,38 +152,38 @@ function MetricCell({ metric }: { metric: Metric }) {
 
   return (
     <div data-testid={`metric-${metric.key}`} data-status={metric.status}>
-      <dt className="text-xs text-neutral-500 dark:text-neutral-400">{metric.label}</dt>
+      <dt className="text-xs text-fg-secondary">{metric.label}</dt>
       <dd className="mt-0.5">
         {measured ? (
           <span className="font-mono text-lg font-semibold" data-testid={`value-${metric.key}`}>
             {format(metric.value)}
             {metric.unit && (
-              <span className="ml-1 text-xs font-normal text-neutral-400">{metric.unit}</span>
+              <span className="ml-1 text-xs font-normal text-fg-muted">{metric.unit}</span>
             )}
             {metric.samples != null && (
-              <span className="ml-2 text-[11px] font-normal text-neutral-400">
+              <span className="ml-2 text-xs font-normal text-fg-muted">
                 n={metric.samples}
               </span>
             )}
           </span>
         ) : (
           <span
-            className="inline-block rounded bg-neutral-100 px-2 py-0.5 font-mono text-xs text-neutral-500 dark:bg-neutral-900 dark:text-neutral-400"
+            className="inline-block rounded bg-surface-subtle px-2 py-0.5 font-mono text-xs text-fg-secondary"
             data-testid={`status-${metric.key}`}
           >
             {STATUS_LABEL[metric.status]}
           </span>
         )}
       </dd>
-      <p className="mt-1 text-[11px] leading-snug text-neutral-500 dark:text-neutral-400">
+      <p className="mt-1 text-xs leading-snug text-fg-secondary">
         {metric.definition}
       </p>
       {metric.detail && (
-        <p className="mt-1 text-[11px] leading-snug text-amber-700 dark:text-amber-400">
+        <p className="mt-1 text-xs leading-snug text-exp-fg">
           {metric.detail}
         </p>
       )}
-      <p className="mt-1 font-mono text-[10px] text-neutral-400">{metric.source}</p>
+      <p className="mt-1 font-mono text-xs text-fg-muted">{metric.source}</p>
     </div>
   );
 }
@@ -191,18 +191,18 @@ function MetricCell({ metric }: { metric: Metric }) {
 function NorthStar({ metric }: { metric: Metric }) {
   return (
     <section data-testid="north-star">
-      <h2 className="text-sm font-semibold uppercase tracking-wide text-neutral-500">
+      <h2 className="text-sm font-semibold uppercase tracking-wide text-fg-secondary">
         Long-term north-star KPI
       </h2>
-      <div className="mt-3 rounded-lg border-2 border-dashed border-violet-400 bg-violet-50/50 p-4 dark:border-violet-800 dark:bg-violet-950/20">
+      <div className="mt-3 rounded-lg border-2 border-dashed border-ai bg-ai-soft/50 p-4">
         <div className="flex flex-wrap items-baseline gap-3">
           <h3 className="text-base font-semibold">{metric.label}</h3>
           <Badge tone="attention">{STATUS_LABEL[metric.status]}</Badge>
-          <span className="font-mono text-xs text-neutral-500" data-testid="north-star-value">
+          <span className="font-mono text-xs text-fg-secondary" data-testid="north-star-value">
             not measured
           </span>
         </div>
-        <p className="mt-2 text-sm text-neutral-700 dark:text-neutral-300">{metric.definition}</p>
+        <p className="mt-2 text-sm text-fg">{metric.definition}</p>
         <div className="mt-3">
           <Note>{metric.detail}</Note>
         </div>

@@ -19,7 +19,7 @@
 
 import { useState } from "react";
 
-import { Badge, Stat } from "./ui";
+import { Badge, Stat, buttonClass } from "./ui";
 import type { CliExperimentPlan, ExperimentPlan } from "@/lib/types";
 
 export function ApprovalCard({
@@ -34,20 +34,20 @@ export function ApprovalCard({
   return (
     <section
       data-testid="approval-card"
-      className="rounded-lg border-2 border-violet-400 bg-violet-50/40 dark:border-violet-800 dark:bg-violet-950/20"
+      className="rounded-lg border border-exp-line border-t-2 border-t-exp bg-surface"
     >
-      <header className="flex items-center gap-2 border-b border-violet-200 px-4 py-3 dark:border-violet-900">
-        <h2 className="text-sm font-semibold">RepoLab wants to run an experiment</h2>
+      <header className="flex items-center gap-2 border-b border-line px-4 py-3">
+        <h2 className="text-card font-semibold text-exp-fg">RepoLab wants to run an experiment</h2>
         <Badge tone="attention">needs your approval</Badge>
       </header>
 
       <div className="flex flex-col gap-4 p-4">
         <div>
-          <p className="text-xs text-neutral-500">Question</p>
+          <p className="text-xs text-fg-secondary">Question</p>
           <p className="text-sm font-medium">{plan.question}</p>
         </div>
         <div>
-          <p className="text-xs text-neutral-500">Hypothesis</p>
+          <p className="text-xs text-fg-secondary">Hypothesis</p>
           <p className="text-sm">{plan.hypothesis}</p>
         </div>
 
@@ -67,20 +67,20 @@ export function ApprovalCard({
         </dl>
 
         <div>
-          <p className="text-xs text-neutral-500">Values</p>
+          <p className="text-xs text-fg-secondary">Values</p>
           <ul className="mt-1 flex flex-wrap gap-1.5" data-testid="plan-values">
             {plan.values.map((value) => (
               <li
                 key={value}
                 className={`rounded px-2 py-0.5 font-mono text-sm ${
                   value === plan.baseline_value
-                    ? "bg-neutral-900 text-white dark:bg-neutral-100 dark:text-neutral-900"
-                    : "bg-neutral-100 dark:bg-neutral-900"
+                    ? "bg-brand text-white"
+                    : "bg-surface-subtle"
                 }`}
               >
                 {value}
                 {value === plan.baseline_value && (
-                  <span className="ml-1 text-[10px] uppercase">baseline</span>
+                  <span className="ml-1 text-xs uppercase">baseline</span>
                 )}
               </li>
             ))}
@@ -90,23 +90,23 @@ export function ApprovalCard({
         {/* The cost, stated before the decision. */}
         <p
           data-testid="plan-cost"
-          className="rounded border border-neutral-300 bg-white px-3 py-2 text-sm dark:border-neutral-700 dark:bg-neutral-950"
+          className="rounded border border-line-strong bg-surface px-3 py-2 text-sm"
         >
           <strong className="font-mono">{plan.estimated_runs}</strong> Spark jobs ·
           about <strong className="font-mono">{plan.estimated_minutes}</strong> min
-          <span className="ml-2 text-xs text-neutral-500">
+          <span className="ml-2 text-xs text-fg-secondary">
             (estimated from a measured per-run baseline)
           </span>
         </p>
 
         <details className="text-xs">
-          <summary className="cursor-pointer text-neutral-500">
+          <summary className="cursor-pointer text-fg-secondary">
             Held fixed across every variant ({Object.keys(plan.fixed_settings).length})
           </summary>
           <dl className="mt-2 grid gap-1 font-mono sm:grid-cols-2">
             {Object.entries(plan.fixed_settings).map(([key, value]) => (
               <div key={key} className="flex gap-2">
-                <dt className="text-neutral-500">{key}</dt>
+                <dt className="text-fg-secondary">{key}</dt>
                 <dd>{value}</dd>
               </div>
             ))}
@@ -114,14 +114,14 @@ export function ApprovalCard({
         </details>
 
         {plan.dropped_metrics.length > 0 && (
-          <p className="text-xs text-amber-700 dark:text-amber-300">
+          <p className="text-xs text-exp-fg">
             <strong>Not measurable:</strong> {plan.dropped_metrics.join(", ")} — requested
             but RepoLab has no instrument for it, so it was dropped from the plan.
           </p>
         )}
 
         {plan.adjustments.length > 0 && (
-          <div className="text-xs text-neutral-500 dark:text-neutral-400">
+          <div className="text-xs text-fg-secondary">
             <p className="font-medium">Adjusted by validation</p>
             <ul className="mt-1 list-disc pl-4">
               {plan.adjustments.map((note) => (
@@ -153,20 +153,20 @@ export function CliApprovalCard({
   return (
     <section
       data-testid="approval-card"
-      className="rounded-lg border-2 border-violet-400 bg-violet-50/40 dark:border-violet-800 dark:bg-violet-950/20"
+      className="rounded-lg border border-exp-line border-t-2 border-t-exp bg-surface"
     >
-      <header className="flex items-center gap-2 border-b border-violet-200 px-4 py-3 dark:border-violet-900">
-        <h2 className="text-sm font-semibold">RepoLab wants to run an experiment</h2>
+      <header className="flex items-center gap-2 border-b border-line px-4 py-3">
+        <h2 className="text-card font-semibold text-exp-fg">RepoLab wants to run an experiment</h2>
         <Badge tone="attention">needs your approval</Badge>
       </header>
 
       <div className="flex flex-col gap-4 p-4">
         <div>
-          <p className="text-xs text-neutral-500">Question</p>
+          <p className="text-xs text-fg-secondary">Question</p>
           <p className="text-sm font-medium">{plan.question}</p>
         </div>
         <div>
-          <p className="text-xs text-neutral-500">Hypothesis</p>
+          <p className="text-xs text-fg-secondary">Hypothesis</p>
           <p className="text-sm">{plan.hypothesis}</p>
         </div>
 
@@ -179,8 +179,8 @@ export function CliApprovalCard({
 
         {plan.setup.length > 0 && (
           <div>
-            <p className="text-xs text-neutral-500">Setup, run before every variant</p>
-            <pre className="mt-1 overflow-x-auto rounded bg-neutral-100 p-2 font-mono text-xs dark:bg-neutral-900">
+            <p className="text-xs text-fg-secondary">Setup, run before every variant</p>
+            <pre className="mt-1 overflow-x-auto rounded bg-surface-subtle p-2 font-mono text-xs">
               {plan.setup.join(";\n")};
             </pre>
           </div>
@@ -190,10 +190,10 @@ export function CliApprovalCard({
           {plan.variants.map((variant) => (
             <div
               key={variant.label}
-              className="rounded border border-neutral-300 bg-white p-3 dark:border-neutral-700 dark:bg-neutral-950"
+              className="rounded border border-line-strong bg-surface p-3"
             >
               <p className="text-xs font-semibold">{variant.label}</p>
-              <pre className="mt-1 overflow-x-auto font-mono text-xs text-neutral-700 dark:text-neutral-300">
+              <pre className="mt-1 overflow-x-auto font-mono text-xs text-fg">
                 {variant.statements.join(";\n")};
               </pre>
             </div>
@@ -202,22 +202,22 @@ export function CliApprovalCard({
 
         <p
           data-testid="plan-cost"
-          className="rounded border border-neutral-300 bg-white px-3 py-2 text-sm dark:border-neutral-700 dark:bg-neutral-950"
+          className="rounded border border-line-strong bg-surface px-3 py-2 text-sm"
         >
           Starts a <strong className="font-mono">{plan.environment.memory || "4g"}</strong> node ·{" "}
           <strong className="font-mono">{plan.estimated_statements}</strong> CQL statements · about{" "}
           <strong className="font-mono">{plan.estimated_minutes}</strong> min
-          <span className="ml-2 text-xs text-neutral-500">(estimated)</span>
+          <span className="ml-2 text-xs text-fg-secondary">(estimated)</span>
         </p>
 
         <details className="text-xs">
-          <summary className="cursor-pointer text-neutral-500">
+          <summary className="cursor-pointer text-fg-secondary">
             Held fixed across every variant ({Object.keys(plan.fixed_settings).length})
           </summary>
           <dl className="mt-2 grid gap-1 font-mono sm:grid-cols-2">
             {Object.entries(plan.fixed_settings).map(([key, value]) => (
               <div key={key} className="flex gap-2">
-                <dt className="text-neutral-500">{key}</dt>
+                <dt className="text-fg-secondary">{key}</dt>
                 <dd className="break-all">{value}</dd>
               </div>
             ))}
@@ -225,7 +225,7 @@ export function CliApprovalCard({
         </details>
 
         {plan.adjustments.length > 0 && (
-          <div className="text-xs text-neutral-500 dark:text-neutral-400">
+          <div className="text-xs text-fg-secondary">
             <p className="font-medium">Adjusted by validation</p>
             <ul className="mt-1 list-disc pl-4">
               {plan.adjustments.map((note) => (
@@ -261,13 +261,13 @@ function DecisionButtons({
   };
 
   return (
-    <div className="flex flex-wrap gap-3 border-t border-violet-200 pt-4 dark:border-violet-900">
+    <div className="flex flex-wrap gap-3 border-t border-line pt-4">
       <button
         type="button"
         onClick={() => decide("approve")}
         disabled={deciding !== null}
         data-testid="approve-experiment"
-        className="rounded bg-violet-700 px-5 py-2 text-sm font-medium text-white disabled:opacity-50"
+        className={buttonClass({ variant: "primary", tone: "exp" })}
       >
         {deciding === "approve" ? "Approving…" : "Approve experiment"}
       </button>
@@ -276,11 +276,11 @@ function DecisionButtons({
         onClick={() => decide("reject")}
         disabled={deciding !== null}
         data-testid="reject-experiment"
-        className="rounded border border-neutral-400 px-5 py-2 text-sm font-medium dark:border-neutral-600"
+        className={buttonClass({ variant: "secondary" })}
       >
         {deciding === "reject" ? "Declining…" : "Decline"}
       </button>
-      <p className="self-center text-xs text-neutral-500">Nothing runs until you choose.</p>
+      <p className="self-center text-xs text-fg-secondary">Nothing runs until you choose.</p>
     </div>
   );
 }

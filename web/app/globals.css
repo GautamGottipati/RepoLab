@@ -1,27 +1,208 @@
 @import "tailwindcss";
 
-:root {
-  --background: #ffffff;
-  --foreground: #171717;
-}
+/*
+ * RepoLab design tokens.
+ *
+ * Every colour has one meaning, everywhere:
+ *   brand (indigo)       primary actions, selected navigation, focus
+ *   ai (violet)          Ask RepoLab, explanations, AI-written guidance
+ *   arch (cyan)          architecture, components, relationships
+ *   run (emerald)        experiences, live environments, success
+ *   exp (amber)          experiments, parameter changes, attention
+ *   danger (rose)        failures and destructive actions only
+ * Everything else is neutral. Components use these names (bg-surface,
+ * text-fg-secondary, border-line, text-ai-fg …) rather than palette values, so
+ * light and dark stay coherent: both themes follow the OS.
+ *
+ * Code, terminals and consoles are dark in both themes (--code-*).
+ */
 
-@theme inline {
-  --color-background: var(--background);
-  --color-foreground: var(--foreground);
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
+:root {
+  /* Neutrals */
+  --canvas: #f8fafc;
+  --surface: #ffffff;
+  --surface-subtle: #f1f5f9;
+  --surface-hover: #f1f5f9;
+  --fg: #0f172a;
+  --fg-secondary: #475569;
+  --fg-muted: #64748b;
+  --line: #e2e8f0;
+  --line-strong: #cbd5e1;
+
+  /* Brand */
+  --brand: #4f46e5;
+  --brand-hover: #4338ca;
+  --brand-soft: #eef2ff;
+  --brand-fg: #4338ca;
+  --brand-line: #c7d2fe;
+
+  /* Semantic: base, soft background, readable foreground, border */
+  --ai: #8b5cf6;
+  --ai-soft: #f5f3ff;
+  --ai-fg: #6d28d9;
+  --ai-line: #ddd6fe;
+
+  --arch: #06b6d4;
+  --arch-soft: #ecfeff;
+  --arch-fg: #0e7490;
+  --arch-line: #a5f3fc;
+
+  --run: #10b981;
+  --run-soft: #ecfdf5;
+  --run-fg: #047857;
+  --run-line: #a7f3d0;
+
+  --exp: #f59e0b;
+  --exp-soft: #fffbeb;
+  --exp-fg: #b45309;
+  --exp-line: #fde68a;
+
+  --danger: #f43f5e;
+  --danger-soft: #fff1f2;
+  --danger-fg: #be123c;
+  --danger-line: #fecdd3;
+
+  /* Dark surfaces (both themes) */
+  --code: #0f172a;
+  --code-raised: #1e293b;
+  --code-fg: #e2e8f0;
+  --code-muted: #94a3b8;
+  --code-line: #1e293b;
+  --landing: #0b1020;
+
+  --shadow-sm: 0 1px 2px rgb(15 23 42 / 0.06), 0 1px 3px rgb(15 23 42 / 0.08);
+  --shadow-lg: 0 10px 30px rgb(15 23 42 / 0.18);
+  --ease: cubic-bezier(0.2, 0, 0, 1);
+  --dur-fast: 150ms;
+  --dur: 200ms;
+
+  color-scheme: light;
 }
 
 @media (prefers-color-scheme: dark) {
   :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
+    --canvas: #0b0f17;
+    --surface: #111723;
+    --surface-subtle: #161e2c;
+    --surface-hover: #1a2333;
+    --fg: #e6eaf2;
+    --fg-secondary: #a3adbf;
+    --fg-muted: #7b8698;
+    --line: #1f2937;
+    --line-strong: #334155;
+
+    --brand: #6366f1;
+    --brand-hover: #818cf8;
+    --brand-soft: #1e1b4b;
+    --brand-fg: #a5b4fc;
+    --brand-line: #3730a3;
+
+    --ai-soft: #21183b;
+    --ai-fg: #c4b5fd;
+    --ai-line: #4c1d95;
+
+    --arch-soft: #0b2a33;
+    --arch-fg: #67e8f9;
+    --arch-line: #155e75;
+
+    --run-soft: #0a2a20;
+    --run-fg: #6ee7b7;
+    --run-line: #065f46;
+
+    --exp-soft: #2d2008;
+    --exp-fg: #fcd34d;
+    --exp-line: #92400e;
+
+    --danger-soft: #2d0f17;
+    --danger-fg: #fda4af;
+    --danger-line: #9f1239;
+
+    --code: #070a10;
+    --code-raised: #111827;
+    --code-line: #1f2937;
+
+    --shadow-sm: 0 1px 2px rgb(0 0 0 / 0.4);
+    --shadow-lg: 0 10px 30px rgb(0 0 0 / 0.5);
+
+    color-scheme: dark;
   }
 }
 
+@theme inline {
+  --color-canvas: var(--canvas);
+  --color-surface: var(--surface);
+  --color-surface-subtle: var(--surface-subtle);
+  --color-surface-hover: var(--surface-hover);
+  --color-fg: var(--fg);
+  --color-fg-secondary: var(--fg-secondary);
+  --color-fg-muted: var(--fg-muted);
+  --color-line: var(--line);
+  --color-line-strong: var(--line-strong);
+
+  --color-brand: var(--brand);
+  --color-brand-hover: var(--brand-hover);
+  --color-brand-soft: var(--brand-soft);
+  --color-brand-fg: var(--brand-fg);
+  --color-brand-line: var(--brand-line);
+
+  --color-ai: var(--ai);
+  --color-ai-soft: var(--ai-soft);
+  --color-ai-fg: var(--ai-fg);
+  --color-ai-line: var(--ai-line);
+  --color-arch: var(--arch);
+  --color-arch-soft: var(--arch-soft);
+  --color-arch-fg: var(--arch-fg);
+  --color-arch-line: var(--arch-line);
+  --color-run: var(--run);
+  --color-run-soft: var(--run-soft);
+  --color-run-fg: var(--run-fg);
+  --color-run-line: var(--run-line);
+  --color-exp: var(--exp);
+  --color-exp-soft: var(--exp-soft);
+  --color-exp-fg: var(--exp-fg);
+  --color-exp-line: var(--exp-line);
+  --color-danger: var(--danger);
+  --color-danger-soft: var(--danger-soft);
+  --color-danger-fg: var(--danger-fg);
+  --color-danger-line: var(--danger-line);
+
+  --color-code: var(--code);
+  --color-code-raised: var(--code-raised);
+  --color-code-fg: var(--code-fg);
+  --color-code-muted: var(--code-muted);
+  --color-code-line: var(--code-line);
+  --color-landing: var(--landing);
+
+  /* Kept for anything still reading the old names. */
+  --color-background: var(--canvas);
+  --color-foreground: var(--fg);
+
+  --font-sans: var(--font-geist-sans);
+  --font-mono: var(--font-geist-mono);
+
+  --radius-sm: 6px;
+  --radius-md: 8px;
+  --radius-lg: 12px;
+
+  --shadow-sm: var(--shadow-sm);
+  --shadow-lg: var(--shadow-lg);
+
+  /* Type scale: page 28, section 20, card 16, body 15, secondary 14, meta 13, micro 12. */
+  --text-page: 1.75rem;
+  --text-page--line-height: 2.25rem;
+  --text-section: 1.25rem;
+  --text-section--line-height: 1.75rem;
+  --text-card: 1rem;
+  --text-card--line-height: 1.5rem;
+  --text-body: 0.9375rem;
+  --text-body--line-height: 1.5rem;
+  --text-meta: 0.8125rem;
+  --text-meta--line-height: 1.25rem;
+}
+
 body {
-  background: var(--background);
-  color: var(--foreground);
+  background: var(--canvas);
+  color: var(--fg);
   /* The layout loads Geist into these variables; hard-coding Arial here threw
      that away on every page. */
   font-family: var(--font-geist-sans), system-ui, sans-serif;
@@ -31,4 +212,22 @@ code,
 pre,
 .font-mono {
   font-family: var(--font-geist-mono), ui-monospace, monospace;
+}
+
+/* One focus treatment, everywhere, keyboard only. */
+:where(a, button, input, select, textarea, summary, [tabindex]):focus-visible {
+  outline: 2px solid var(--brand);
+  outline-offset: 2px;
+  border-radius: 4px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
 }

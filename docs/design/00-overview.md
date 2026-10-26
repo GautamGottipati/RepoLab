@@ -18,24 +18,38 @@ shareable and every refresh resumes exactly where it was.
 
 ## The shell
 
-A header naming the repository and the commit, a tab bar for the five
-workspace screens, and the **agent activity rail** on the right.
+A sticky header that leads with the repository's **name** (the slug and the
+commit are secondary), the job status as a dot and a word, and four tabs:
+
+```text
+RepoLab / apache/spark                                   ● Ready
+Apache Spark   commit 0aa4f91
+Overview   Experiences   Architecture   Ask RepoLab      ⌁ Analyzed · 51 evidence · 41 components  Details ›
+```
+
+*Overview* is the investigation's screen under the name a newcomer understands
+(the route is unchanged). The Playground and Learn screens are experiences:
+they are reached from Experiences, which stays selected inside them.
 
 The shell owns the job's SSE connection. Next.js layouts preserve state across
 navigation, so switching tabs never drops the stream or re-replays history.
-
-Tabs become available as the data behind them does, and say why they are not:
-*Architecture* is disabled until the investigation finishes; *Playground* says
-so if the environment is unavailable.
+Tabs that need a manifest are disabled, with the reason as their title, until
+one exists.
 
 ## Agent activity
 
-Visible on every workspace screen. Two parts, from the same event stream:
+One line in the tab bar — what the agent is doing ("Mapping architecture · 3 of
+5") or what it found ("Analyzed · 51 evidence · 41 components") — that opens a
+drawer. The drawer holds the two views, both from the same event stream:
 
-- **Phase tracker** — the four phases, from `agent_status` events carrying
+- **Phase tracker** — the phases, from `agent_status` events carrying
   `{phase, label, index, total}`. The labels come from the backend
   (`repolab/events/activity.py`); the browser holds no copy of that vocabulary.
 - **Activity feed** — a line per event: its type, its step, and its `message`.
+
+While an investigation runs, the Overview shows the same announced phases as
+progress. Nothing is permanently given a column: the page's content gets the
+width.
 
 > **It must never show private chain-of-thought.** The feed renders `message`
 > and named `data` keys. It never renders an unknown `data` blob, and no screen
@@ -57,16 +71,47 @@ their spread. An inference is always visually weaker than a measurement.
 
 ## Visual language
 
-- Dark and light, following the system; tokens in `globals.css`.
-- Monospace for anything that came from the machine: paths, hashes, commands,
-  figures.
-- One accent colour for "this is live", one for "this needs you" (approval), one
-  for "this failed". Nothing else is coloured for decoration.
-- Evidence is always adjacent to the claim it supports, never behind a link.
+Tokens live in `web/app/globals.css` as CSS variables with a light and a dark
+value each (both themes follow the system), exposed to Tailwind as
+`bg-canvas`, `bg-surface`, `text-fg-secondary`, `border-line`, `text-ai-fg` …
+Components use the token names, never palette values.
+
+**Every colour means one thing, everywhere:**
+
+| colour | token | means |
+|---|---|---|
+| indigo | `brand` | primary action, selected navigation, focus |
+| violet | `ai` | Ask RepoLab, explanations, AI-written text |
+| cyan | `arch` | architecture, components, relationships |
+| emerald | `run` | experiences, live environments, success |
+| amber | `exp` | experiments, parameter changes, in progress |
+| rose | `danger` | failures and destructive actions only |
+
+Everything else is neutral (`canvas`, `surface`, `surface-subtle`, `fg`,
+`fg-secondary`, `fg-muted`, `line`, `line-strong`). Code, terminals and consoles
+use the `code-*` tokens and are dark in both themes; the landing page is navy.
+
+- **Type:** page 28, section 20, card 16, body 15, meta 13, nothing below 12.
+  Monospace only for code, commands, hashes, paths and runtime values.
+- **Radius:** 6 / 8 / 12px. Shadows only on drawers and popovers.
+- **Motion:** 150–200ms, and none under `prefers-reduced-motion`.
+- **Focus:** one 2px brand ring for keyboard focus, everywhere.
+- **Status** is a dot *and* a word (`StatusBadge`), never colour alone.
+- **Actions** — Ask (violet), Architecture (cyan), Run (emerald), Experiment
+  (amber), Source (neutral) — always carry an icon and a label (`ActionLink`).
+- One solid button per section: the next action. Everything else is outlined
+  or ghost.
+- Evidence is progressively disclosed: answer, then details, then evidence,
+  then source.
+
+Shared primitives are in `web/components/kit/` (Button, Badge, StatusBadge,
+Card, Section, PageHeader, CodeSurface, Metric, EmptyState, ErrorState,
+ProgressSteps, Tabs, Chips, Drawer, ActionLink, icons), re-exported by
+`components/ui.tsx` with the older Panel, Stat, Empty, ErrorNote and Note.
 
 ## States every screen handles
 
 **Loading** — a skeleton, never a spinner on an empty page.
-**Empty** — says what would fill it and how to get there.
-**Live** — something is visibly happening; the activity rail is the proof.
+**Empty** — says what happened, why, and what to do next (`EmptyState`).
+**Live** — something is visibly happening; the activity chip and drawer are the proof.
 **Error** — the real message from the API, not "something went wrong".

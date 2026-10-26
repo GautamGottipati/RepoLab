@@ -1,6 +1,23 @@
-/** Small shared pieces: panels, labels, states. */
+/**
+ * Shared pieces: panels, labels, states -- on the design tokens.
+ *
+ * The design-system primitives live in `components/kit/`; this module keeps
+ * the names every screen already imports and re-exports the kit, so a call site
+ * needs one import whichever it uses.
+ */
 
 import type { ReactNode } from "react";
+
+import { EmptyState } from "./kit/states";
+
+export * from "./kit/actions";
+export * from "./kit/button";
+export * from "./kit/drawer";
+export * from "./kit/icons";
+export * from "./kit/layout";
+export * from "./kit/states";
+export * from "./kit/status";
+export * from "./kit/tabs";
 
 export function Panel({
   title,
@@ -16,21 +33,17 @@ export function Panel({
   className?: string;
 }) {
   return (
-    <section
-      className={`rounded-lg border border-neutral-200 bg-white dark:border-neutral-800 dark:bg-neutral-950 ${className}`}
-    >
+    <section className={`min-w-0 rounded-lg border border-line bg-surface ${className}`}>
       {(title || action) && (
-        <header className="flex items-start justify-between gap-4 border-b border-neutral-200 px-4 py-3 dark:border-neutral-800">
-          <div>
-            {title && <h2 className="text-sm font-semibold tracking-tight">{title}</h2>}
-            {subtitle && (
-              <p className="mt-0.5 text-xs text-neutral-500 dark:text-neutral-400">{subtitle}</p>
-            )}
+        <header className="flex items-start justify-between gap-4 px-5 pt-4">
+          <div className="min-w-0">
+            {title && <h2 className="text-card font-semibold tracking-tight text-fg">{title}</h2>}
+            {subtitle && <p className="mt-0.5 text-sm text-fg-secondary">{subtitle}</p>}
           </div>
           {action}
         </header>
       )}
-      <div className="p-4">{children}</div>
+      <div className="px-5 pt-3 pb-5">{children}</div>
     </section>
   );
 }
@@ -50,30 +63,26 @@ export function Stat({
   emphasis?: boolean;
 }) {
   return (
-    <div>
-      <dt className="text-xs text-neutral-500 dark:text-neutral-400">{label}</dt>
+    <div className="min-w-0">
+      <dt className="text-xs text-fg-muted">{label}</dt>
       <dd
-        className={`${mono ? "font-mono" : ""} ${
+        className={`${mono ? "font-mono tabular-nums" : ""} ${
           emphasis ? "text-lg font-semibold" : "text-sm"
-        } mt-0.5 break-words`}
+        } mt-0.5 break-words text-fg`}
       >
         {value}
       </dd>
-      {hint && <p className="mt-0.5 text-xs text-neutral-400 dark:text-neutral-500">{hint}</p>}
+      {hint && <p className="mt-0.5 text-xs text-fg-muted">{hint}</p>}
     </div>
   );
 }
 
+/** A simple empty state; `EmptyState` takes actions as well. */
 export function Empty({ title, children }: { title: string; children?: ReactNode }) {
   return (
-    <div className="rounded-lg border border-dashed border-neutral-300 px-4 py-8 text-center dark:border-neutral-700">
-      <p className="text-sm font-medium">{title}</p>
-      {children && (
-        <p className="mx-auto mt-1 max-w-md text-xs text-neutral-500 dark:text-neutral-400">
-          {children}
-        </p>
-      )}
-    </div>
+    <EmptyState title={title} compact>
+      {children}
+    </EmptyState>
   );
 }
 
@@ -83,9 +92,6 @@ export function Empty({ title, children }: { title: string; children?: ReactNode
  * `children` is the headline — one sentence, no jargon. `nextStep` is what to do
  * about it, and `technical` is the error's own text, kept behind a disclosure so
  * it is available without being the first thing anyone sees.
- *
- * Called with a bare string everywhere it was before; the extra parts are
- * supplied where the backend sends them.
  */
 export function ErrorNote({
   children,
@@ -100,22 +106,20 @@ export function ErrorNote({
     <div
       role="alert"
       data-testid="error-note"
-      className="rounded border border-red-300 bg-red-50 px-3 py-2 text-sm text-red-800 dark:border-red-900 dark:bg-red-950 dark:text-red-200"
+      className="rounded-lg border border-danger-line bg-danger-soft px-4 py-3 text-sm text-danger-fg"
     >
-      <p>{children}</p>
+      <p className="font-medium">{children}</p>
       {nextStep && (
-        <p className="mt-1 text-xs text-red-700 dark:text-red-300" data-testid="error-next-step">
+        <p className="mt-1 text-sm text-fg-secondary" data-testid="error-next-step">
           {nextStep}
         </p>
       )}
       {technical && (
-        <details className="mt-1.5">
-          <summary className="cursor-pointer text-xs text-red-600 dark:text-red-400">
-            Technical detail
-          </summary>
+        <details className="mt-2">
+          <summary className="cursor-pointer text-xs">Technical detail</summary>
           <pre
             data-testid="error-technical"
-            className="mt-1 overflow-x-auto whitespace-pre-wrap break-words font-mono text-[11px] text-red-700 dark:text-red-400"
+            className="mt-1 max-h-60 overflow-x-auto whitespace-pre-wrap break-words rounded-md bg-code p-2 font-mono text-xs text-code-fg"
           >
             {technical}
           </pre>
@@ -125,9 +129,10 @@ export function ErrorNote({
   );
 }
 
+/** Something worth noticing that is not a failure. */
 export function Note({ children }: { children: ReactNode }) {
   return (
-    <p className="rounded border border-amber-300 bg-amber-50 px-3 py-2 text-xs text-amber-900 dark:border-amber-900 dark:bg-amber-950 dark:text-amber-200">
+    <p className="rounded-lg border border-exp-line bg-exp-soft px-3 py-2 text-sm text-exp-fg">
       {children}
     </p>
   );
@@ -139,7 +144,7 @@ export function Skeleton({ rows = 3 }: { rows?: number }) {
       {Array.from({ length: rows }, (_, index) => (
         <div
           key={index}
-          className="h-4 animate-pulse rounded bg-neutral-200 dark:bg-neutral-800"
+          className="h-4 animate-pulse rounded-sm bg-surface-subtle"
           style={{ width: `${100 - index * 12}%` }}
         />
       ))}
@@ -162,33 +167,14 @@ export function DeterminismTag({ kind }: { kind: "structural" | "timing" }) {
           ? "Structural: repeats exactly across identical runs"
           : "Timing: varies between runs"
       }
-      className={`rounded px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wide ${
+      className={`rounded-sm border px-1.5 py-0.5 text-xs font-medium ${
         structural
-          ? "bg-sky-100 text-sky-800 dark:bg-sky-950 dark:text-sky-300"
-          : "bg-amber-100 text-amber-900 dark:bg-amber-950 dark:text-amber-300"
+          ? "border-line bg-surface-subtle text-fg-secondary"
+          : "border-exp-line bg-exp-soft text-exp-fg"
       }`}
     >
       {kind}
     </span>
-  );
-}
-
-export function Badge({
-  children,
-  tone = "neutral",
-}: {
-  children: ReactNode;
-  tone?: "neutral" | "live" | "good" | "bad" | "attention";
-}) {
-  const tones = {
-    neutral: "bg-neutral-100 text-neutral-700 dark:bg-neutral-900 dark:text-neutral-300",
-    live: "bg-sky-100 text-sky-800 dark:bg-sky-950 dark:text-sky-300",
-    good: "bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-300",
-    bad: "bg-red-100 text-red-800 dark:bg-red-950 dark:text-red-300",
-    attention: "bg-violet-100 text-violet-800 dark:bg-violet-950 dark:text-violet-300",
-  };
-  return (
-    <span className={`rounded px-2 py-0.5 text-xs font-medium ${tones[tone]}`}>{children}</span>
   );
 }
 
@@ -215,21 +201,15 @@ export function FileRefs({
   return (
     <ul className="mt-2 flex flex-col gap-1">
       {unique.slice(0, limit).map((ref, index) => (
-        <li key={`${ref.path}:${ref.start_line}:${index}`} className="font-mono text-xs">
-          <span className="text-neutral-700 dark:text-neutral-300">
+        <li key={`${ref.path}:${ref.start_line}:${index}`} className="min-w-0 truncate font-mono text-xs">
+          <span className="text-fg">
             {ref.path}
             {ref.start_line ? `:${ref.start_line}` : ""}
           </span>
-          {ref.excerpt && (
-            <span className="ml-2 text-neutral-400 dark:text-neutral-500">
-              {ref.excerpt.trim().slice(0, 70)}
-            </span>
-          )}
+          {ref.excerpt && <span className="ml-2 text-fg-muted">{ref.excerpt.trim().slice(0, 70)}</span>}
         </li>
       ))}
-      {unique.length > limit && (
-        <li className="text-xs text-neutral-400">+{unique.length - limit} more</li>
-      )}
+      {unique.length > limit && <li className="text-xs text-fg-muted">+{unique.length - limit} more</li>}
     </ul>
   );
 }

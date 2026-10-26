@@ -19,7 +19,7 @@
 
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState, type ReactNode } from "react";
 
 import { ArchitectureGraph } from "./architecture-graph";
 import { ArchitectureInspector, ConceptInspector, EvidenceList } from "./architecture-inspector";
@@ -34,7 +34,7 @@ import {
   SubsystemCards,
   Walkthroughs,
 } from "./architecture-overview";
-import { Empty, FileRefs, Note, Panel } from "./ui";
+import { ActionLink, Drawer, Empty, EmptyState, FileRefs, Note, Panel } from "./ui";
 import {
   CATEGORY_LABEL,
   VIEW_LABEL,
@@ -63,7 +63,40 @@ type Props = {
   overlay: RuntimeOverlay | null;
   initialSubsystem?: string | null;
   initialSelection?: string | null;
+  initialPerspective?: string | null;
 };
+
+/**
+ * Ways of looking at the same architecture. Each shows sections the page
+ * already had; none adds data. "overview" is the map a newcomer needs first.
+ */
+const PERSPECTIVES = [
+  { id: "overview", label: "Overview" },
+  { id: "components", label: "Core components" },
+  { id: "flows", label: "Execution flow" },
+  { id: "learning", label: "Learning path" },
+  { id: "source", label: "Source code" },
+  { id: "experiments", label: "Related experiments" },
+] as const;
+type Perspective = (typeof PERSPECTIVES)[number]["id"];
+
+function isPerspective(value: string | null | undefined): value is Perspective {
+  return PERSPECTIVES.some((p) => p.id === value);
+}
+
+/** Whether the viewport is wide enough for a side panel. Wide until measured. */
+function useWide(query = "(min-width: 1024px)"): boolean {
+  const [wide, setWide] = useState(true);
+  useEffect(() => {
+    if (typeof window === "undefined" || !window.matchMedia) return;
+    const media = window.matchMedia(query);
+    const update = () => setWide(media.matches);
+    update();
+    media.addEventListener?.("change", update);
+    return () => media.removeEventListener?.("change", update);
+  }, [query]);
+  return wide;
+}
 
 export function ArchitectureExperience(props: Props) {
   return hasLevels(props.view.graph) ? <GuidedArchitecture {...props} /> : <LegacyArchitecture {...props} />;
@@ -73,7 +106,15 @@ export function ArchitectureExperience(props: Props) {
 // The guided experience (schema 3)
 // ---------------------------------------------------------------------------
 
-function GuidedArchitecture({ jobId, view, manifest, overlay, initialSubsystem = null, initialSelection = null }: Props) {
+function GuidedArchitecture({
+  jobId,
+  view,
+  manifest,
+  overlay,
+  initialSubsystem = null,
+  initialSelection = null,
+  initialPerspective = null,
+}: Props) {
   const graph = view.graph;
   const understanding = graph.understanding!;
   const subsystems = useMemo(() => graph.subsystems ?? [], [graph.subsystems]);
@@ -83,6 +124,10 @@ function GuidedArchitecture({ jobId, view, manifest, overlay, initialSubsystem =
     initialSubsystem && subsystems.some((s) => s.id === initialSubsystem) ? initialSubsystem : null,
   );
   const [selected, setSelected] = useState<string | null>(known(initialSelection));
+  const [perspective, setPerspective] = useState<Perspective>(
+    isPerspective(initialPerspective) ? initialPerspective : "overview",
+  );
+  const wide = useWide();
 
   useEffect(() => {
     // Keep the drill-down in the URL without a navigation.
@@ -91,6 +136,7 @@ function GuidedArchitecture({ jobId, view, manifest, overlay, initialSubsystem =
       for (const [key, value] of [
         ["subsystem", subsystemId],
         ["node", selected],
+        ["view", perspective === "overview" ? null : perspective],
       ] as const) {
         if (value) url.searchParams.set(key, value);
         else url.searchParams.delete(key);
@@ -99,11 +145,16 @@ function GuidedArchitecture({ jobId, view, manifest, overlay, initialSubsystem =
     } catch {
       // Not in a browser that allows it; the state still works in memory.
     }
-  }, [subsystemId, selected]);
+  }, [subsystemId, selected, perspective]);
 
   const explore = (id: string | null) => {
     setSubsystemId(id);
     setSelected(null);
+    setPerspective(id ? "components" : "overview");
+  };
+  const look = (next: Perspective) => {
+    setPerspective(next);
+    setSubsystemId(null);
   };
   const select = (id: string) => {
     const kind = subjectKind(graph, id);
@@ -144,94 +195,194 @@ function GuidedArchitecture({ jobId, view, manifest, overlay, initialSubsystem =
     />
   ) : null;
 
-  return (
-    <div className="flex flex-col gap-6">
-      <Breadcrumb
-        name={understanding.name}
-        subsystem={subsystem}
-        selected={selected ? labelOf(graph, selected) : null}
-        onHome={() => explore(null)}
-        onSubsystem={() => subsystem && explore(subsystem.id)}
-      />
+  const available: Record<Perspective, boolean> = {
+    overview: true,
+    components: subsystems.length > 0,
+    flows: overviewWalkthroughs(graph).length > 0 || (graph.walkthroughs ?? []).length > 0,
+    learning: (graph.learning_path ?? []).length > 0,
+    source:
+      subsystems.some((s) => s.starting_points.length > 0) ||
+      graph.important_files.length > 0 ||
+      manifest.concepts.length > 0,
+    experiments: true,
+  };
+  const experiments = Object.entries(view.node_actions).filter(([, a]) => a.experiment.available && a.experiment.question);
+  const active: Perspective = subsystem ? "components" : perspective;
 
-      <div className={inspector ? "grid gap-6 lg:grid-cols-[minmax(0,1fr)_24rem]" : ""}>
+  const content: ReactNode = subsystem ? (
+    <SubsystemView
+      view={view}
+      subsystem={subsystem}
+      selected={selected}
+      measured={measured}
+      groupMeasured={grouped[subsystem.id] ?? []}
+      onSelect={select}
+    />
+  ) : perspective === "overview" ? (
+    <>
+      <Orientation
+        jobId={jobId}
+        repoUrl={view.repo_url}
+        commit={view.commit_sha}
+        understanding={understanding}
+        surfaces={surfaces}
+        partial={graph.completeness === "partial"}
+        onExplore={explore}
+        onSelect={select}
+      />
+      <SystemModelPanel graph={graph} selected={selected} measured={grouped} onSelect={select} />
+      {subsystems.length > 0 && <SubsystemCards subsystems={subsystems} measured={grouped} onExplore={explore} />}
+      <Walkthroughs walkthroughs={overviewWalkthroughs(graph)} onSelect={select} />
+      <AnalysisDetails graph={graph} overlay={overlay} />
+    </>
+  ) : perspective === "components" ? (
+    subsystems.length > 0 ? (
+      <SubsystemCards subsystems={subsystems} measured={grouped} onExplore={explore} />
+    ) : (
+      <EmptyState title="No major parts were found">
+        RepoLab could not tie this repository&apos;s structure to separate parts, so it shows none rather than guess.
+      </EmptyState>
+    )
+  ) : perspective === "flows" ? (
+    <Walkthroughs
+      walkthroughs={[...overviewWalkthroughs(graph), ...(graph.walkthroughs ?? []).filter((w) => w.level !== "system")]}
+      onSelect={select}
+    />
+  ) : perspective === "learning" ? (
+    <LearningPath
+      jobId={jobId}
+      steps={graph.learning_path ?? []}
+      experiment={experiment ? { id: experiment[0], question: experiment[1].experiment.question! } : null}
+      onOpen={openStep}
+    />
+  ) : perspective === "source" ? (
+    <>
+      {subsystems.some((s) => s.starting_points.length > 0) && (
+        <StartingPoints
+          repoUrl={view.repo_url}
+          commit={view.commit_sha}
+          subsystems={subsystems}
+          files={graph.important_files}
+          onExplore={explore}
+          onOpenFile={(file: ImportantFile) => file.node_ids[0] && select(file.node_ids[0])}
+        />
+      )}
+      {manifest.concepts.length > 0 && (
+        <Panel title="Concepts the investigation noted" subtitle="With the lines that show them">
+          <ul className="flex flex-col gap-4" data-testid="concepts">
+            {manifest.concepts.map((concept) => (
+              <li key={concept.name}>
+                <p className="text-sm font-medium text-fg">{concept.name}</p>
+                <p className="mt-0.5 text-sm text-fg-secondary">{concept.summary}</p>
+                <FileRefs refs={concept.code_references} />
+              </li>
+            ))}
+          </ul>
+        </Panel>
+      )}
+      {!available.source && (
+        <EmptyState title="No starting points yet">
+          RepoLab found no files it could recommend reading first. Ask RepoLab where something is implemented.
+        </EmptyState>
+      )}
+    </>
+  ) : (
+    <Panel title="Related experiments" subtitle="Questions RepoLab can test against the real software">
+      {experiments.length > 0 ? (
+        <ul className="flex flex-col gap-3" data-testid="related-experiments">
+          {experiments.map(([nodeId, action]) => (
+            <li key={nodeId} className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-line p-3">
+              <div className="min-w-0">
+                <p className="text-sm font-medium text-fg">{action.experiment.question}</p>
+                <button type="button" onClick={() => select(nodeId)} className="mt-0.5 text-xs text-arch-fg hover:underline">
+                  {labelOf(graph, nodeId)}
+                </button>
+              </div>
+              <ActionLink kind="experiment" href={`/r/${jobId}/ask?q=${encodeURIComponent(action.experiment.question!)}`}>
+                Design experiment
+              </ActionLink>
+            </li>
+          ))}
+        </ul>
+      ) : (
+        <EmptyState
+          title="No experiments for these components yet"
+          compact
+          actions={
+            <ActionLink kind="run" href={`/r/${jobId}/experiences`}>
+              See what you can run
+            </ActionLink>
+          }
+        >
+          Experiments need something RepoLab can run. Start an experience, then ask a question about it.
+        </EmptyState>
+      )}
+    </Panel>
+  );
+
+  return (
+    <div className="grid gap-6 lg:grid-cols-[11rem_minmax(0,1fr)]" data-perspective={active}>
+      <nav aria-label="Architecture perspectives" data-testid="perspectives" className="min-w-0">
+        <ul className="-mx-1 flex gap-1 overflow-x-auto pb-1 lg:sticky lg:top-36 lg:mx-0 lg:flex-col lg:overflow-visible">
+          {PERSPECTIVES.filter((p) => available[p.id]).map((p) => (
+            <li key={p.id} className="shrink-0">
+              <button
+                type="button"
+                onClick={() => look(p.id)}
+                aria-current={active === p.id ? "page" : undefined}
+                data-testid={`perspective-${p.id}`}
+                className={`w-full whitespace-nowrap rounded-md px-3 py-2 text-left text-sm transition-colors duration-150 ${
+                  active === p.id
+                    ? "bg-arch-soft font-medium text-arch-fg"
+                    : "text-fg-secondary hover:bg-surface-hover hover:text-fg"
+                }`}
+              >
+                {p.label}
+              </button>
+            </li>
+          ))}
+        </ul>
+      </nav>
+
+      <div className={inspector && wide ? "grid min-w-0 gap-6 xl:grid-cols-[minmax(0,1fr)_22rem]" : "min-w-0"}>
         <div className="flex min-w-0 flex-col gap-6">
-          {subsystem ? (
-            <SubsystemView
-              view={view}
-              subsystem={subsystem}
-              selected={selected}
-              measured={measured}
-              groupMeasured={grouped[subsystem.id] ?? []}
-              onSelect={select}
-            />
-          ) : (
-            <>
-              <Orientation
-                jobId={jobId}
-                repoUrl={view.repo_url}
-                commit={view.commit_sha}
-                understanding={understanding}
-                surfaces={surfaces}
-                partial={graph.completeness === "partial"}
-                onExplore={explore}
-                onSelect={select}
-              />
-              <SystemModelPanel graph={graph} selected={selected} measured={grouped} onSelect={select} />
-              {subsystems.length > 0 && (
-                <SubsystemCards subsystems={subsystems} measured={grouped} onExplore={explore} />
-              )}
-              <Walkthroughs walkthroughs={overviewWalkthroughs(graph)} onSelect={select} />
-              <LearningPath
-                jobId={jobId}
-                steps={graph.learning_path ?? []}
-                experiment={experiment ? { id: experiment[0], question: experiment[1].experiment.question! } : null}
-                onOpen={openStep}
-              />
-              {subsystems.some((s) => s.starting_points.length > 0) && (
-                <StartingPoints
-                  repoUrl={view.repo_url}
-                  commit={view.commit_sha}
-                  subsystems={subsystems}
-                  files={graph.important_files}
-                  onExplore={explore}
-                  onOpenFile={(file: ImportantFile) => file.node_ids[0] && select(file.node_ids[0])}
-                />
-              )}
-              {manifest.concepts.length > 0 && (
-                <details className="rounded-lg border border-neutral-200 p-3 dark:border-neutral-800">
-                  <summary className="cursor-pointer text-sm font-medium">Concepts the investigation noted</summary>
-                  <ul className="mt-3 flex flex-col gap-4" data-testid="concepts">
-                    {manifest.concepts.map((concept) => (
-                      <li key={concept.name}>
-                        <p className="text-sm font-medium">{concept.name}</p>
-                        <p className="mt-0.5 text-sm text-neutral-600 dark:text-neutral-400">{concept.summary}</p>
-                        <FileRefs refs={concept.code_references} />
-                      </li>
-                    ))}
-                  </ul>
-                </details>
-              )}
-            </>
-          )}
-          <AnalysisDetails graph={graph} overlay={overlay} />
+          <Breadcrumb
+            name={understanding.name}
+            subsystem={subsystem}
+            selected={selected ? labelOf(graph, selected) : null}
+            onHome={() => explore(null)}
+            onSubsystem={() => subsystem && explore(subsystem.id)}
+          />
+          {content}
         </div>
 
-        {inspector && (
-          <aside className="lg:sticky lg:top-4 lg:self-start" aria-label="Selected">
-            <Panel
-              title="Selected"
-              action={
-                <button type="button" onClick={() => setSelected(null)} className="text-xs text-neutral-500 underline">
+        {inspector && wide && (
+          <aside
+            className="min-w-0 xl:sticky xl:top-36 xl:max-h-[calc(100vh-10rem)] xl:self-start xl:overflow-y-auto"
+            aria-label="Selected"
+          >
+            <div className="rounded-lg border border-arch-line bg-surface">
+              <div className="flex items-center justify-between gap-3 border-b border-line px-4 py-2.5">
+                <p className="text-xs font-semibold uppercase tracking-wider text-arch-fg">Details</p>
+                <button
+                  type="button"
+                  onClick={() => setSelected(null)}
+                  className="rounded-md px-2 py-1 text-xs text-fg-secondary hover:bg-surface-hover hover:text-fg"
+                >
                   Close
                 </button>
-              }
-            >
-              {inspector}
-            </Panel>
+              </div>
+              <div className="min-w-0 p-4 [overflow-wrap:anywhere]">{inspector}</div>
+            </div>
           </aside>
         )}
       </div>
+
+      {inspector && !wide && (
+        <Drawer open onClose={() => setSelected(null)} title={labelOf(graph, selected!)} data-testid="details-sheet">
+          {inspector}
+        </Drawer>
+      )}
     </div>
   );
 }
@@ -259,22 +410,22 @@ function Breadcrumb({
 }) {
   if (!subsystem && !selected) return null;
   return (
-    <nav aria-label="Breadcrumb" data-testid="breadcrumb" className="flex flex-wrap items-center gap-1.5 text-sm">
-      <button type="button" onClick={onHome} className="underline underline-offset-2">
+    <nav aria-label="Breadcrumb" data-testid="breadcrumb" className="flex flex-wrap items-center gap-1.5 text-sm text-fg-secondary">
+      <button type="button" onClick={onHome} className="hover:text-fg hover:underline">
         {name}
       </button>
       {subsystem && (
         <>
-          <span aria-hidden className="text-neutral-400">›</span>
-          <button type="button" onClick={onSubsystem} className="underline underline-offset-2">
+          <span aria-hidden className="text-fg-muted">›</span>
+          <button type="button" onClick={onSubsystem} className="hover:text-fg hover:underline">
             {subsystem.label}
           </button>
         </>
       )}
       {selected && (
         <>
-          <span aria-hidden className="text-neutral-400">›</span>
-          <span className="font-medium">{selected}</span>
+          <span aria-hidden className="text-fg-muted">›</span>
+          <span className="font-medium text-fg">{selected}</span>
         </>
       )}
     </nav>
@@ -347,19 +498,19 @@ function SubsystemView({
       <Panel title={subsystem.label} subtitle={subsystemPath(subsystem)}>
         <div data-testid="subsystem-view" data-subsystem-id={subsystem.id} className="flex flex-col gap-3">
           {subsystem.description && <p className="text-sm">{subsystem.description}</p>}
-          <p className="text-xs text-neutral-500">
+          <p className="text-xs text-fg-secondary">
             {subsystem.file_count} source files
             {subsystem.languages.length > 0 && ` · ${subsystem.languages.join(", ")}`} · {sub.nodes.length} components
             found
           </p>
           <details className="text-xs">
-            <summary className="cursor-pointer text-neutral-500">How do you know this is a part?</summary>
+            <summary className="cursor-pointer text-fg-secondary">How do you know this is a part?</summary>
             <p className="mt-2">Found as: {subsystem.declared_by}.</p>
             <div className="mt-1">
               <EvidenceList evidence={subsystem.evidence} repoUrl={view.repo_url} commit={view.commit_sha} />
             </div>
             {Object.keys(subsystem.importance_signals).length > 0 && (
-              <p className="mt-1 text-neutral-500">
+              <p className="mt-1 text-fg-secondary">
                 Ranked by:{" "}
                 {Object.entries(subsystem.importance_signals)
                   .map(([signal, value]) => `${signal} (${value > 0 ? "+" : ""}${value})`)
@@ -429,32 +580,32 @@ function ComponentPanel({
         <div className="flex flex-col gap-4">
           <ArchitectureGraph graph={graph} selected={selected} highlighted={highlighted} measured={measured} onSelect={onSelect} />
           {graph.primary_flows.length > 0 && (
-            <ol className="flex flex-col gap-1 border-t border-neutral-200 pt-3 text-xs dark:border-neutral-800" data-testid="primary-flows">
+            <ol className="flex flex-col gap-1 border-t border-line pt-3 text-xs" data-testid="primary-flows">
               {graph.primary_flows.map((flow) => (
                 <li key={flow.name + flow.node_ids.join()}>
                   <span className="font-medium">{flow.name}</span>
-                  {flow.provenance === "inferred" && <span className="ml-1 text-[10px] uppercase text-neutral-400">inferred</span>}
-                  <span className="ml-2 font-mono text-neutral-500">{flow.node_ids.map(label).join(" → ")}</span>
+                  {flow.provenance === "inferred" && <span className="ml-1 text-xs uppercase text-fg-muted">inferred</span>}
+                  <span className="ml-2 font-mono text-fg-secondary">{flow.node_ids.map(label).join(" → ")}</span>
                 </li>
               ))}
             </ol>
           )}
           <details className="text-xs" data-testid="component-list">
-            <summary className="cursor-pointer text-neutral-500">All {graph.nodes.length} components, most useful first</summary>
+            <summary className="cursor-pointer text-fg-secondary">All {graph.nodes.length} components, most useful first</summary>
             <ul className="mt-2 flex flex-col gap-1">
               {ranked.map((node) => (
                 <li key={node.id}>
                   <button type="button" onClick={() => onSelect(node.id)} className="underline underline-offset-2">
                     {node.label}
                   </button>
-                  <span className="ml-1 text-neutral-500">{CATEGORY_LABEL[node.category]}</span>
+                  <span className="ml-1 text-fg-secondary">{CATEGORY_LABEL[node.category]}</span>
                 </li>
               ))}
             </ul>
           </details>
           {graph.important_files.length > 0 && (
             <details className="text-xs" open={file !== null}>
-              <summary className="cursor-pointer text-neutral-500">Important implementation files (click to highlight)</summary>
+              <summary className="cursor-pointer text-fg-secondary">Important implementation files (click to highlight)</summary>
               <ImportantFiles
                 files={graph.important_files}
                 active={file}

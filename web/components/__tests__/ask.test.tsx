@@ -233,6 +233,8 @@ describe("sources", () => {
 
   it("keep the full evidence, with its labels, one click away", () => {
     renderAnswer(result(flow));
+    // Collapsed by default: the answer leads, the evidence is disclosed on request.
+    expect(screen.queryByTestId("all-evidence")).toBeNull();
     fireEvent.click(screen.getByTestId("show-all-evidence"));
     const all = screen.getByTestId("all-evidence");
     expect(within(all).getByTestId("evidence-panel")).toBeTruthy();

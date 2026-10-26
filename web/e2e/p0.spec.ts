@@ -45,8 +45,12 @@ test.describe("P0 — the Spark experience, from the browser", () => {
     const jobUrl = page.url();
     console.log(`  workspace: ${jobUrl}`);
 
-    // -- Investigation ------------------------------------------------------
+    // -- Overview, while the investigation runs ------------------------------
     await expect(page.getByTestId("repo-slug")).toContainText("pyspark-example-project");
+
+    // The agent's activity is one click away, in a drawer.
+    await page.getByTestId("activity-chip").click();
+    const activity = page.getByTestId("agent-activity");
 
     // The four phases the specification names, from the backend's own
     // vocabulary. Each must actually be announced; none is cosmetic.
@@ -55,7 +59,7 @@ test.describe("P0 — the Spark experience, from the browser", () => {
       "Finding Spark entry points",
       "Understanding data flow",
     ]) {
-      await expect(page.getByRole("listitem").filter({ hasText: label })).toHaveAttribute(
+      await expect(activity.getByRole("listitem").filter({ hasText: label })).toHaveAttribute(
         "data-state",
         /active|done/,
         { timeout: INVESTIGATION_TIMEOUT },
@@ -68,10 +72,12 @@ test.describe("P0 — the Spark experience, from the browser", () => {
 
     // Refreshing mid-run must replay history rather than lose it.
     await page.reload();
+    await page.getByTestId("activity-chip").click();
     await expect(page.getByTestId("activity-feed")).toContainText("cloning", {
       timeout: 60_000,
     });
     console.log("  refresh replayed the stream");
+    await page.keyboard.press("Escape");
 
     await expect(page.getByTestId("job-status")).toHaveAttribute("data-status", "completed", {
       timeout: INVESTIGATION_TIMEOUT,
@@ -105,8 +111,9 @@ test.describe("P0 — the Spark experience, from the browser", () => {
     await expect(page.getByTestId("ask-context")).toBeVisible();
     await expect(page.getByTestId("question-history")).toBeVisible();
 
-    // -- Spark Playground ---------------------------------------------------
-    await page.getByTestId("tab-Playground").click();
+    // -- Spark Playground, reached as an experience ---------------------------
+    await page.getByTestId("tab-Experiences").click();
+    await page.getByTestId("open-experience").click();
     await expect(page).toHaveURL(/\/playground$/);
 
     // Input data: the real dataset, with the hash the run will record.

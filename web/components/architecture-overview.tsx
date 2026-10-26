@@ -64,13 +64,13 @@ export function Orientation({
         <h1 className="text-2xl font-semibold tracking-tight" data-testid="repository-name">
           {understanding.name}
         </h1>
-        <p className="mt-1 text-base text-neutral-700 dark:text-neutral-300">
+        <p className="mt-1 text-base text-fg">
           <Badge tone="attention">
             <span data-testid="repository-type">{REPOSITORY_KIND_LABEL[understanding.repository_type]}</span>
           </Badge>
           {understanding.type_provenance === "inferred" && <InferredTag />}
           {understanding.languages.length > 0 && (
-            <span className="ml-3 text-sm text-neutral-500">{understanding.languages.join(" • ")}</span>
+            <span className="ml-3 text-sm text-fg-secondary">{understanding.languages.join(" • ")}</span>
           )}
         </p>
         {understanding.one_line_description && (
@@ -81,7 +81,7 @@ export function Orientation({
         )}
       </header>
 
-      <div className="rounded-lg border border-neutral-200 p-4 dark:border-neutral-800">
+      <div className="rounded-lg border border-line p-4">
         <h2 className="text-sm font-semibold">What is this repository?</h2>
         {understanding.beginner_explanation ? (
           <p className="mt-1 text-sm leading-relaxed" data-testid="beginner-explanation">
@@ -89,14 +89,14 @@ export function Orientation({
             {tag("beginner_explanation")}
           </p>
         ) : (
-          <p className="mt-1 text-sm text-neutral-500">
+          <p className="mt-1 text-sm text-fg-secondary">
             The repository does not describe itself in a README or package metadata RepoLab could read.
           </p>
         )}
         <dl className="mt-3 grid gap-2 text-sm sm:grid-cols-2">
           {understanding.primary_purpose && (
             <div>
-              <dt className="text-xs text-neutral-500">What problem it solves</dt>
+              <dt className="text-xs text-fg-secondary">What problem it solves</dt>
               <dd>
                 {understanding.primary_purpose}
                 {tag("primary_purpose")}
@@ -105,7 +105,7 @@ export function Orientation({
           )}
           {understanding.primary_users && (
             <div>
-              <dt className="text-xs text-neutral-500">Who uses it</dt>
+              <dt className="text-xs text-fg-secondary">Who uses it</dt>
               <dd>
                 {understanding.primary_users}
                 {tag("primary_users")}
@@ -114,14 +114,14 @@ export function Orientation({
           )}
           {surfaces.length > 0 && (
             <div>
-              <dt className="text-xs text-neutral-500">Ways to use it</dt>
+              <dt className="text-xs text-fg-secondary">Ways to use it</dt>
               <dd data-testid="surfaces">{surfaces.join(" · ")}</dd>
             </div>
           )}
         </dl>
 
         <details className="mt-3 text-xs" data-testid="how-do-you-know">
-          <summary className="cursor-pointer text-neutral-500">
+          <summary className="cursor-pointer text-fg-secondary">
             Based on {sources.map((k) => k.replace("_", " ")).join(", ") || "the repository's structure"} ·
             How do you know?
           </summary>
@@ -136,7 +136,7 @@ export function Orientation({
             {understanding.type_reasons.length > 0 && (
               <div>
                 <p className="font-medium">Why “{REPOSITORY_KIND_LABEL[understanding.repository_type]}”</p>
-                <ul className="list-disc pl-5 text-neutral-600 dark:text-neutral-400">
+                <ul className="list-disc pl-5 text-fg-secondary">
                   {understanding.type_reasons.map((reason) => (
                     <li key={reason}>{reason}</li>
                   ))}
@@ -151,13 +151,13 @@ export function Orientation({
             <Link
               href={askUrl(jobId, null, understanding.recommended_start)}
               data-testid="recommended-start"
-              className="rounded bg-neutral-900 px-3 py-1.5 text-xs font-medium text-white dark:bg-neutral-100 dark:text-neutral-900"
+              className="rounded bg-brand px-3 py-1.5 text-xs font-medium text-white"
             >
               {understanding.recommended_start} →
             </Link>
           )}
           {partial && (
-            <span className="text-xs text-amber-700 dark:text-amber-400" data-testid="partial-note">
+            <span className="text-xs text-exp-fg" data-testid="partial-note">
               Parts of this architecture could not be determined — see Analysis details.
             </span>
           )}
@@ -190,24 +190,24 @@ export function SubsystemCards({
               onClick={() => onExplore(subsystem.id)}
               data-testid="subsystem-card"
               data-subsystem-id={subsystem.id}
-              className="flex h-full w-full flex-col rounded-lg border border-neutral-200 p-3 text-left hover:border-neutral-400 dark:border-neutral-800 dark:hover:border-neutral-600"
+              className="flex h-full w-full flex-col rounded-lg border border-line p-3 text-left hover:border-line-strong"
             >
               <span className="text-sm font-semibold">
                 {subsystem.label}
                 {subsystem.inferred_fields.includes("label") && <InferredTag />}
               </span>
-              <span className="font-mono text-[11px] text-neutral-500">{subsystemPath(subsystem)}</span>
+              <span className="font-mono text-xs text-fg-secondary">{subsystemPath(subsystem)}</span>
               {subsystem.description && (
-                <span className="mt-1.5 text-xs text-neutral-700 dark:text-neutral-300">{subsystem.description}</span>
+                <span className="mt-1.5 text-xs text-fg">{subsystem.description}</span>
               )}
-              <span className="mt-auto flex items-center justify-between pt-2 text-[11px] text-neutral-500">
+              <span className="mt-auto flex items-center justify-between pt-2 text-xs text-fg-secondary">
                 <span>
                   {subsystem.file_count} source files
                   {subsystem.languages.length > 0 && ` · ${subsystem.languages.join(", ")}`}
                 </span>
                 <span className="flex items-center gap-2">
                   {(measured[subsystem.id]?.length ?? 0) > 0 && <Badge tone="good">measured</Badge>}
-                  <span className="font-medium text-neutral-800 dark:text-neutral-200">Explore →</span>
+                  <span className="font-medium text-fg">Explore →</span>
                 </span>
               </span>
             </button>
@@ -245,7 +245,7 @@ export function Walkthroughs({
                 type="button"
                 onClick={() => setIndex(i)}
                 aria-pressed={i === index}
-                className={`rounded px-2 py-0.5 text-xs ${i === index ? "bg-neutral-900 text-white dark:bg-neutral-100 dark:text-neutral-900" : "border border-neutral-300 dark:border-neutral-700"}`}
+                className={`rounded px-2 py-0.5 text-xs ${i === index ? "bg-brand text-white" : "border border-line-strong"}`}
               >
                 {w.name}
               </button>
@@ -258,7 +258,7 @@ export function Walkthroughs({
         {walk.steps.map((step, i) => (
           <li key={`${step.target_id}-${i}`} className="flex flex-col items-start">
             {i > 0 && (
-              <span aria-hidden className="ml-4 text-neutral-400">
+              <span aria-hidden className="ml-4 text-fg-muted">
                 ↓
               </span>
             )}
@@ -266,16 +266,16 @@ export function Walkthroughs({
               type="button"
               onClick={() => onSelect(step.target_id)}
               data-testid="walkthrough-step"
-              className="rounded border border-neutral-300 px-3 py-1 text-left text-sm hover:border-neutral-500 dark:border-neutral-700"
+              className="rounded border border-line-strong px-3 py-1 text-left text-sm hover:border-line-strong"
             >
               <span className="font-medium">{step.label}</span>
-              {step.detail && <span className="ml-2 text-xs text-neutral-500">{step.detail}</span>}
+              {step.detail && <span className="ml-2 text-xs text-fg-secondary">{step.detail}</span>}
             </button>
           </li>
         ))}
       </ol>
       {walk.provenance === "inferred" && (
-        <p className="mt-2 text-[10px] uppercase tracking-wide text-neutral-400">
+        <p className="mt-2 text-xs uppercase tracking-wide text-fg-muted">
           inferred by Nemotron along evidenced relationships
         </p>
       )}
@@ -305,7 +305,7 @@ export function LearningPath({
       <ol className="flex flex-col gap-2" data-testid="learning-path">
         {steps.map((step, i) => (
           <li key={`${step.title}-${i}`} className="flex gap-3">
-            <span className="mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-neutral-200 text-[11px] font-semibold dark:bg-neutral-800">
+            <span className="mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-line text-xs font-semibold">
               {i + 1}
             </span>
             <div className="min-w-0">
@@ -319,19 +319,19 @@ export function LearningPath({
                 </button>
               )}
               {step.provenance === "inferred" && <InferredTag />}
-              {step.why && <p className="text-xs text-neutral-500">{step.why}</p>}
+              {step.why && <p className="text-xs text-fg-secondary">{step.why}</p>}
             </div>
           </li>
         ))}
         {experiment && (
           <li className="flex gap-3">
-            <span className="mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-violet-200 text-[11px] font-semibold dark:bg-violet-900">
+            <span className="mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-ai-line text-xs font-semibold">
               {steps.length + 1}
             </span>
             <Link
               href={askUrl(jobId, experiment.id, experiment.question)}
               data-testid="learning-experiment"
-              className="text-sm font-medium text-violet-700 underline underline-offset-2 dark:text-violet-300"
+              className="text-sm font-medium text-ai-fg underline underline-offset-2"
             >
               Run a small experiment: {experiment.question}
             </Link>
@@ -380,8 +380,8 @@ export function StartingPoints({
         ))}
       </ul>
       {files.length > 0 && (
-        <details className="mt-4 border-t border-neutral-200 pt-3 dark:border-neutral-800" data-testid="advanced-files">
-          <summary className="cursor-pointer text-xs font-medium text-neutral-500">
+        <details className="mt-4 border-t border-line pt-3" data-testid="advanced-files">
+          <summary className="cursor-pointer text-xs font-medium text-fg-secondary">
             Advanced: important implementation files
           </summary>
           <ImportantFiles files={files} onOpen={onOpenFile} />
@@ -416,9 +416,9 @@ export function StartingPointList({
             ) : (
               <span className="font-mono">{point.path}/</span>
             )}
-            <span className="ml-2 text-neutral-500">{point.reason}</span>
+            <span className="ml-2 text-fg-secondary">{point.reason}</span>
             {point.learn_about.length > 0 && (
-              <span className="block pl-5 text-neutral-500">Learn about: {point.learn_about.join(" • ")}</span>
+              <span className="block pl-5 text-fg-secondary">Learn about: {point.learn_about.join(" • ")}</span>
             )}
           </li>
         );
@@ -445,10 +445,10 @@ export function ImportantFiles({
             onClick={() => onOpen(file)}
             aria-pressed={active === file.path}
             data-testid="important-file"
-            className={`w-full rounded px-2 py-1 text-left ${active === file.path ? "bg-sky-50 dark:bg-sky-950" : ""}`}
+            className={`w-full rounded px-2 py-1 text-left ${active === file.path ? "bg-brand-soft" : ""}`}
           >
             <span className="font-mono text-xs">{file.path}</span>
-            <span className="block text-[11px] text-neutral-500">{file.role}</span>
+            <span className="block text-xs text-fg-secondary">{file.role}</span>
           </button>
         </li>
       ))}
@@ -470,10 +470,10 @@ export function AnalysisDetails({
   const evidence = graph.nodes.reduce((sum, n) => sum + n.source_references.length, 0);
   const dropped = Object.entries(graph.dropped);
   return (
-    <details className="rounded-lg border border-neutral-200 p-3 text-sm dark:border-neutral-800" data-testid="analysis-details">
+    <details className="rounded-lg border border-line p-3 text-sm" data-testid="analysis-details">
       <summary className="cursor-pointer text-sm">
         <span className="font-medium">✓ Repository analyzed</span>
-        <span className="ml-2 text-xs text-neutral-500" data-testid="analysis-counts">
+        <span className="ml-2 text-xs text-fg-secondary" data-testid="analysis-counts">
           {evidence} pieces of evidence · {graph.nodes.length} components · {graph.subsystems?.length ?? 0} parts ·{" "}
           {graph.primary_flows.length} flows
         </span>
@@ -487,7 +487,7 @@ export function AnalysisDetails({
         {graph.completeness === "partial" && (
           <section
             data-testid="partial-architecture"
-            className="rounded border border-amber-300 bg-amber-50 p-3 dark:border-amber-800 dark:bg-amber-950/40"
+            className="rounded border border-exp-line bg-exp-soft p-3"
           >
             <p className="font-semibold">Architecture partially detected</p>
             <ul className="mt-1 list-disc pl-5">
@@ -498,7 +498,7 @@ export function AnalysisDetails({
           </section>
         )}
         {graph.completeness !== "partial" && graph.gaps.length > 0 && (
-          <ul className="list-disc pl-5 text-neutral-600 dark:text-neutral-400">
+          <ul className="list-disc pl-5 text-fg-secondary">
             {graph.gaps.map((gap) => (
               <li key={gap}>{gap}</li>
             ))}
@@ -507,7 +507,7 @@ export function AnalysisDetails({
         {dropped.length > 0 && (
           <div>
             <p className="font-medium">Refused during validation</p>
-            <ul className="list-disc pl-5 text-neutral-600 dark:text-neutral-400" data-testid="dropped">
+            <ul className="list-disc pl-5 text-fg-secondary" data-testid="dropped">
               {dropped.map(([reason, count]) => (
                 <li key={reason}>
                   {count} × {reason}
@@ -531,7 +531,7 @@ export function MeasuredList({ values }: { values: MeasuredValue[] }) {
           <span>{value.name}</span>
           <span className="font-mono">
             {formatMeasured(value.value, value.unit)}
-            <span className="ml-2 text-[10px] text-neutral-400">{value.source}</span>
+            <span className="ml-2 text-xs text-fg-muted">{value.source}</span>
           </span>
         </li>
       ))}

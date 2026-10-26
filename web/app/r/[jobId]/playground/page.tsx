@@ -147,9 +147,9 @@ export default function PlaygroundPage() {
                 className="w-full border-collapse text-left font-mono text-xs"
               >
                 <thead>
-                  <tr className="border-b border-neutral-200 dark:border-neutral-800">
+                  <tr className="border-b border-line">
                     {preview.columns.map((column) => (
-                      <th key={column} className="py-1 pr-4 font-medium text-neutral-500">
+                      <th key={column} className="py-1 pr-4 font-medium text-fg-secondary">
                         {column}
                       </th>
                     ))}
@@ -157,7 +157,7 @@ export default function PlaygroundPage() {
                 </thead>
                 <tbody>
                   {preview.rows.map((row, index) => (
-                    <tr key={index} className="border-b border-neutral-100 dark:border-neutral-900">
+                    <tr key={index} className="border-b border-line">
                       {row.map((cell, cellIndex) => (
                         <td key={cellIndex} className="py-1 pr-4">
                           {cell}
@@ -168,7 +168,7 @@ export default function PlaygroundPage() {
                 </tbody>
               </table>
             </div>
-            <p className="mt-2 text-xs text-neutral-400">
+            <p className="mt-2 text-xs text-fg-muted">
               The first {preview.preview_rows} rows, cut from the real generated file.
             </p>
           </>
@@ -194,7 +194,7 @@ export default function PlaygroundPage() {
             );
           })}
         </ol>
-        <p className="mt-3 text-xs text-amber-700 dark:text-amber-300">
+        <p className="mt-3 text-xs text-exp-fg">
           The repository&apos;s job performs no shuffle at all, so shuffle and skew
           metrics would be structurally zero. The added steps are what make the
           question measurable — and any figure below describes the
@@ -217,8 +217,8 @@ export default function PlaygroundPage() {
                   data-testid={`partitions-${choice}`}
                   className={`rounded border px-3 py-1 font-mono text-sm ${
                     partitions === choice
-                      ? "border-neutral-900 bg-neutral-900 text-white dark:border-neutral-100 dark:bg-neutral-100 dark:text-neutral-900"
-                      : "border-neutral-300 dark:border-neutral-700"
+                      ? "border-brand bg-brand text-white"
+                      : "border-line-strong"
                   }`}
                 >
                   {choice}
@@ -231,9 +231,9 @@ export default function PlaygroundPage() {
                 max={2000}
                 value={partitions}
                 onChange={(event) => setPartitions(Number(event.target.value))}
-                className="w-24 rounded border border-neutral-300 px-2 py-1 font-mono text-sm dark:border-neutral-700 dark:bg-neutral-900"
+                className="w-24 rounded border border-line-strong px-2 py-1 font-mono text-sm"
               />
-              <span className="text-xs text-neutral-500">200 is Spark&apos;s default</span>
+              <span className="text-xs text-fg-secondary">200 is Spark&apos;s default</span>
             </div>
           </div>
 
@@ -249,11 +249,11 @@ export default function PlaygroundPage() {
               step={10_000}
               value={rows}
               onChange={(event) => setRows(Number(event.target.value))}
-              className="ml-3 w-32 rounded border border-neutral-300 px-2 py-1 font-mono text-sm dark:border-neutral-700 dark:bg-neutral-900"
+              className="ml-3 w-32 rounded border border-line-strong px-2 py-1 font-mono text-sm"
             />
           </div>
 
-          <dl className="grid grid-cols-2 gap-3 border-t border-neutral-200 pt-3 sm:grid-cols-4 dark:border-neutral-800">
+          <dl className="grid grid-cols-2 gap-3 border-t border-line pt-3 sm:grid-cols-4">
             <Stat label="Master" value="local[4]" />
             <Stat label="Driver memory" value="2g" />
             <Stat
@@ -274,7 +274,7 @@ export default function PlaygroundPage() {
             onClick={start}
             disabled={starting || running || !repoUrl || environmentReady === false}
             data-testid="run-pipeline"
-            className="rounded bg-neutral-900 px-4 py-2 text-sm font-medium text-white disabled:opacity-50 dark:bg-neutral-100 dark:text-neutral-900"
+            className="rounded bg-brand px-4 py-2 text-sm font-medium text-white disabled:opacity-50"
           >
             {running ? "Running…" : starting ? "Starting…" : "Run the pipeline"}
           </button>
@@ -293,7 +293,7 @@ export default function PlaygroundPage() {
               <Badge tone={run ? "good" : status === "open" ? "live" : "neutral"}>
                 {run ? "measured" : "running"}
               </Badge>
-              <span className="font-mono text-xs text-neutral-500">
+              <span className="font-mono text-xs text-fg-secondary">
                 {events.length} events
               </span>
             </div>
@@ -310,7 +310,7 @@ export default function PlaygroundPage() {
         >
           <div className="flex flex-col gap-6" data-testid="metrics">
             <div>
-              <h3 className="mb-3 text-xs font-semibold uppercase tracking-wide text-sky-700 dark:text-sky-300">
+              <h3 className="mb-3 text-xs font-semibold uppercase tracking-wide text-brand-fg">
                 Structural · repeats exactly across identical runs
               </h3>
               <dl className="grid grid-cols-2 gap-4 sm:grid-cols-4">
@@ -352,7 +352,7 @@ export default function PlaygroundPage() {
             </div>
 
             <div>
-              <h3 className="mb-3 text-xs font-semibold uppercase tracking-wide text-amber-700 dark:text-amber-300">
+              <h3 className="mb-3 text-xs font-semibold uppercase tracking-wide text-exp-fg">
                 Timing · varies between runs
               </h3>
               <dl className="grid grid-cols-2 gap-4 sm:grid-cols-4">
@@ -367,8 +367,8 @@ export default function PlaygroundPage() {
               </dl>
             </div>
 
-            <div className="border-t border-neutral-200 pt-4 dark:border-neutral-800">
-              <h3 className="text-xs font-semibold uppercase tracking-wide text-neutral-500">
+            <div className="border-t border-line pt-4">
+              <h3 className="text-xs font-semibold uppercase tracking-wide text-fg-secondary">
                 Measurement source
               </h3>
               <dl className="mt-2 grid grid-cols-2 gap-4 sm:grid-cols-4">
@@ -386,7 +386,7 @@ export default function PlaygroundPage() {
         <Panel title="Previous runs" subtitle="Same repository, different configuration">
           <table className="w-full border-collapse text-left text-xs">
             <thead>
-              <tr className="border-b border-neutral-200 text-neutral-500 dark:border-neutral-800">
+              <tr className="border-b border-line text-fg-secondary">
                 <th className="py-1 pr-4 font-medium">partitions</th>
                 <th className="py-1 pr-4 font-medium">empty</th>
                 <th className="py-1 pr-4 font-medium">tasks</th>
@@ -396,7 +396,7 @@ export default function PlaygroundPage() {
             </thead>
             <tbody className="font-mono">
               {previous.slice(0, 8).map((entry) => (
-                <tr key={entry.run_id} className="border-b border-neutral-100 dark:border-neutral-900">
+                <tr key={entry.run_id} className="border-b border-line">
                   <td className="py-1 pr-4">{entry.configuration?.shuffle_partitions ?? "—"}</td>
                   <td className="py-1 pr-4">
                     {entry.measurements?.distribution.empty_partitions ?? "—"}
@@ -433,8 +433,8 @@ function PipelineStep({
   children: React.ReactNode;
 }) {
   return (
-    <li className="flex gap-3 rounded border border-neutral-200 p-3 dark:border-neutral-800">
-      <span className="flex size-6 shrink-0 items-center justify-center rounded-full border border-neutral-300 text-xs text-neutral-500 dark:border-neutral-700">
+    <li className="flex gap-3 rounded border border-line p-3">
+      <span className="flex size-6 shrink-0 items-center justify-center rounded-full border border-line-strong text-xs text-fg-secondary">
         {index}
       </span>
       <div className="min-w-0">
@@ -448,7 +448,7 @@ function PipelineStep({
             <Badge tone="attention">added by RepoLab</Badge>
           )}
         </p>
-        <p className="mt-1 text-xs text-neutral-500 dark:text-neutral-400">{children}</p>
+        <p className="mt-1 text-xs text-fg-secondary">{children}</p>
       </div>
     </li>
   );

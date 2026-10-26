@@ -29,13 +29,13 @@ export function TriageNote({ triage }: { triage: Triage }) {
       : "answering from the repository and its official documentation";
 
   return (
-    <p className="text-xs text-neutral-500" data-testid="triage">
+    <p className="text-xs text-fg-secondary" data-testid="triage">
       <Badge>{KIND_LABEL[triage.kind]}</Badge>{" "}
       <span className="ml-1">
         {triage.reason} — {action}.
       </span>
       {triage.decided_by === "model" && (
-        <span className="ml-1 text-neutral-400">(classified by Nemotron Nano)</span>
+        <span className="ml-1 text-fg-muted">(classified by Nemotron Nano)</span>
       )}
     </p>
   );
@@ -76,7 +76,7 @@ export function AnsweredQuestion({
             askHref={jobId ? (question) => `/r/${jobId}/ask?q=${encodeURIComponent(question)}` : undefined}
           />
         ) : (
-          <p className="text-sm text-neutral-500">The answer has not been recorded.</p>
+          <p className="text-sm text-fg-secondary">The answer has not been recorded.</p>
         )}
       </Panel>
     </div>

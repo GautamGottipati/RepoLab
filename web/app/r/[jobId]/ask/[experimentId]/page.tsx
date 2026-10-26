@@ -161,7 +161,7 @@ function SparkResults({
           </dl>
         )}
         {plan && (
-          <p className="mt-4 text-sm text-neutral-600 dark:text-neutral-400">
+          <p className="mt-4 text-sm text-fg-secondary">
             <span className="font-medium">Hypothesis:</span> {plan.hypothesis}
           </p>
         )}
@@ -222,7 +222,7 @@ function SparkResults({
               bars={live.map(toBar("runtime"))}
               emptyMessage="Waiting for the first variant"
             />
-            <p className="text-xs text-neutral-400">
+            <p className="text-xs text-fg-muted">
               Live values from the runs completed so far. Replaced by the computed
               statistics when the experiment finishes.
             </p>
@@ -250,7 +250,7 @@ function SparkResults({
               type="button"
               onClick={() => setShowAllMetrics((current) => !current)}
               data-testid="toggle-all-metrics"
-              className="rounded border border-neutral-300 px-3 py-1 text-xs dark:border-neutral-700"
+              className="rounded border border-line-strong px-3 py-1 text-xs"
             >
               {showAllMetrics
                 ? "Show the key metrics"
@@ -261,7 +261,7 @@ function SparkResults({
           <div className="overflow-x-auto">
             <table className="w-full border-collapse text-left text-xs">
               <thead>
-                <tr className="border-b border-neutral-200 text-neutral-500 dark:border-neutral-800">
+                <tr className="border-b border-line text-fg-secondary">
                   <th className="py-1 pr-4 font-medium">metric</th>
                   <th className="py-1 pr-4 font-medium">value</th>
                   <th className="py-1 pr-4 font-medium">median</th>
@@ -279,7 +279,7 @@ function SparkResults({
                     return (
                       <tr
                         key={`${comparison.metric}-${point.value}`}
-                        className="border-b border-neutral-100 dark:border-neutral-900"
+                        className="border-b border-line"
                       >
                         <td className="py-1 pr-4">
                           {comparison.metric}{" "}
@@ -288,16 +288,16 @@ function SparkResults({
                         <td className={`py-1 pr-4 ${point.is_baseline ? "font-semibold" : ""}`}>
                           {point.value}
                           {point.is_baseline && (
-                            <span className="ml-1 text-[10px] uppercase text-neutral-400">
+                            <span className="ml-1 text-xs uppercase text-fg-muted">
                               base
                             </span>
                           )}
                         </td>
                         <td className="py-1 pr-4">{point.median.toLocaleString()}</td>
-                        <td className="py-1 pr-4 text-neutral-500">
+                        <td className="py-1 pr-4 text-fg-secondary">
                           {aggregate ? aggregate.spread.toLocaleString() : "—"}
                         </td>
-                        <td className="py-1 pr-4 text-neutral-500">
+                        <td className="py-1 pr-4 text-fg-secondary">
                           {aggregate ? aggregate.stddev.toLocaleString() : "—"}
                         </td>
                         <td className="py-1 pr-4">
@@ -341,10 +341,10 @@ function SparkResults({
 
             {explanation.explanation.explanation.caveats.length > 0 && (
               <div>
-                <h4 className="text-xs font-semibold uppercase tracking-wide text-neutral-500">
+                <h4 className="text-xs font-semibold uppercase tracking-wide text-fg-secondary">
                   Caveats
                 </h4>
-                <ul className="mt-2 list-disc pl-5 text-sm text-neutral-600 dark:text-neutral-400">
+                <ul className="mt-2 list-disc pl-5 text-sm text-fg-secondary">
                   {explanation.explanation.explanation.caveats.map((caveat) => (
                     <li key={caveat}>{caveat}</li>
                   ))}
@@ -363,7 +363,7 @@ function SparkResults({
                 The measurements above are real and complete. Only the narrative is
                 missing — RepoLab reports that rather than inventing one.
               </Empty>
-              <p className="mt-3 font-mono text-xs text-neutral-500">
+              <p className="mt-3 font-mono text-xs text-fg-secondary">
                 {experiment.explanation_error}
               </p>
             </>
@@ -414,11 +414,11 @@ function SparkResults({
             />
           </dl>
 
-          <div className="mt-4 border-t border-neutral-200 pt-3 dark:border-neutral-800">
-            <h4 className="text-xs font-semibold uppercase tracking-wide text-neutral-500">
+          <div className="mt-4 border-t border-line pt-3">
+            <h4 className="text-xs font-semibold uppercase tracking-wide text-fg-secondary">
               Added by RepoLab, not present in the repository
             </h4>
-            <ul className="mt-2 list-disc pl-5 text-xs text-neutral-600 dark:text-neutral-400">
+            <ul className="mt-2 list-disc pl-5 text-xs text-fg-secondary">
               {experiment.reproducibility.added_steps.map((step) => (
                 <li key={step}>{step}</li>
               ))}
@@ -553,9 +553,9 @@ function StatusBadge({ status }: { status?: ExperimentState["status"] }) {
       {status === "completed" ? (
         <Badge tone="good">completed</Badge>
       ) : status === "running" ? (
-        <Badge tone="live">running</Badge>
+        <Badge tone="exp">running</Badge>
       ) : status === "approved" ? (
-        <Badge tone="live">starting</Badge>
+        <Badge tone="exp">starting</Badge>
       ) : status === "failed" ? (
         <Badge tone="bad">failed</Badge>
       ) : status === "answered" ? (

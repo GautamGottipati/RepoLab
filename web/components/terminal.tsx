@@ -258,15 +258,15 @@ export function Terminal({
 
   return (
     <div data-testid="terminal" data-status={status}>
-      <div className="flex items-center gap-2 rounded-t-lg border border-neutral-800 bg-neutral-900 px-3 py-1.5">
-        <span className="font-mono text-xs text-neutral-400">{prompt}</span>
+      <div className="flex items-center gap-2 rounded-t-lg border border-code-line bg-code px-3 py-1.5">
+        <span className="font-mono text-xs text-fg-muted">{prompt}</span>
         <span
           className={`ml-auto font-mono text-xs ${
             status === "open"
-              ? "text-emerald-400"
+              ? "text-run"
               : status === "error"
-                ? "text-red-400"
-                : "text-neutral-500"
+                ? "text-danger"
+                : "text-fg-secondary"
           }`}
           data-testid="terminal-status"
         >
@@ -275,10 +275,10 @@ export function Terminal({
       </div>
       <div
         ref={host}
-        className="h-80 overflow-hidden rounded-b-lg border border-t-0 border-neutral-800 bg-[#0b0b0d] p-2"
+        className="h-80 overflow-hidden rounded-b-lg border border-t-0 border-code-line bg-code p-2"
       />
       {note && (
-        <p className="mt-2 text-xs text-neutral-500" data-testid="terminal-note">
+        <p className="mt-2 text-xs text-fg-secondary" data-testid="terminal-note">
           {note}
         </p>
       )}

@@ -55,11 +55,11 @@ test.describe("P1 — the Cassandra lesson, from the browser", () => {
     });
     console.log("  investigation complete");
 
-    // -- The Learn tab appears because the manifest found a CLI surface ------
-    const learn = page.getByTestId("tab-Learn");
-    await expect(learn).toBeVisible();
-    await expect(page.getByTestId("tab-Playground")).toHaveCount(0);
-    console.log("  Learn tab present, Playground absent — the manifest decides");
+    // -- The CLI is offered as an experience because the manifest found it -----
+    await page.getByTestId("tab-Experiences").click();
+    const learn = page.getByTestId("open-experience");
+    await expect(learn).toHaveAttribute("href", /\/learn$/);
+    console.log("  Try the CLI is offered — the manifest decides");
 
     await learn.click();
     await expect(page.getByTestId("lesson-title")).toBeVisible({ timeout: 60_000 });

@@ -65,12 +65,12 @@ export function PhaseTracker({ events, done }: { events: JobEvent[]; done: boole
           >
             <span
               aria-hidden
-              className={`flex size-5 shrink-0 items-center justify-center rounded-full border text-[10px] ${
+              className={`flex size-5 shrink-0 items-center justify-center rounded-full border text-xs ${
                 state === "done"
-                  ? "border-emerald-500 bg-emerald-500 text-white"
+                  ? "border-run bg-run text-white"
                   : state === "active"
-                    ? "animate-pulse border-sky-500 bg-sky-500 text-white"
-                    : "border-neutral-300 text-neutral-400 dark:border-neutral-700"
+                    ? "animate-pulse border-brand bg-brand text-white"
+                    : "border-line-strong text-fg-muted"
               }`}
             >
               {state === "done" ? "✓" : position + 1}
@@ -78,7 +78,7 @@ export function PhaseTracker({ events, done }: { events: JobEvent[]; done: boole
             <span
               className={
                 state === "pending"
-                  ? "text-neutral-400 dark:text-neutral-600"
+                  ? "text-fg-muted"
                   : state === "active"
                     ? "font-medium"
                     : ""
@@ -95,12 +95,12 @@ export function PhaseTracker({ events, done }: { events: JobEvent[]; done: boole
 
 /** How each event type reads in the feed. */
 const TONE: Record<string, string> = {
-  failed: "text-red-600 dark:text-red-400",
-  approval_required: "text-violet-700 dark:text-violet-300",
-  approval_received: "text-violet-700 dark:text-violet-300",
-  experiment_variant_started: "text-sky-700 dark:text-sky-300",
-  experiment_variant_completed: "text-emerald-700 dark:text-emerald-300",
-  partial_result: "text-emerald-700 dark:text-emerald-300",
+  failed: "text-danger-fg",
+  approval_required: "text-ai-fg",
+  approval_received: "text-ai-fg",
+  experiment_variant_started: "text-brand-fg",
+  experiment_variant_completed: "text-run-fg",
+  partial_result: "text-run-fg",
   agent_status: "font-medium",
 };
 
@@ -135,7 +135,7 @@ export function ActivityFeed({
   const scroller = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
-    scroller.current?.scrollTo({ top: scroller.current.scrollHeight });
+    scroller.current?.scrollTo?.({ top: scroller.current.scrollHeight });
   }, [events]);
 
   return (
@@ -144,12 +144,12 @@ export function ActivityFeed({
       data-testid="activity-feed"
       aria-live="polite"
       aria-label="Agent activity"
-      className={`${height} overflow-y-auto rounded border border-neutral-200 bg-neutral-50 p-2 font-mono text-xs dark:border-neutral-800 dark:bg-neutral-950 ${className}`}
+      className={`${height} overflow-y-auto rounded border border-line bg-surface-subtle p-2 font-mono text-xs ${className}`}
     >
-      {events.length === 0 && <p className="p-2 text-neutral-500">Waiting for the agent…</p>}
+      {events.length === 0 && <p className="p-2 text-fg-secondary">Waiting for the agent…</p>}
       {events.map((event) => (
         <div key={event.seq} className="flex gap-2 py-0.5">
-          <span aria-hidden className="w-3 shrink-0 text-neutral-400">
+          <span aria-hidden className="w-3 shrink-0 text-fg-muted">
             {MARK[event.type] ?? "·"}
           </span>
           <span className={`break-words ${TONE[event.type] ?? ""}`}>
@@ -182,12 +182,12 @@ export function AgentActivityPanel({
   const expanded = !done || open;
   return (
     <div data-testid="agent-activity">
-      <h2 className="text-xs font-semibold uppercase tracking-wide text-neutral-500">Agent activity</h2>
+      <h2 className="text-xs font-semibold uppercase tracking-wide text-fg-secondary">Agent activity</h2>
       {done && (
-        <div className="mt-3 rounded border border-neutral-200 p-3 text-xs dark:border-neutral-800" data-testid="activity-summary">
+        <div className="mt-3 rounded border border-line p-3 text-xs" data-testid="activity-summary">
           <p className="font-medium">✓ Repository analyzed</p>
           {summary && (
-            <ul className="mt-1 text-neutral-600 dark:text-neutral-400">
+            <ul className="mt-1 text-fg-secondary">
               <li>{summary.evidence} pieces of evidence</li>
               <li>{summary.components} components discovered</li>
               <li>
@@ -211,7 +211,7 @@ export function AgentActivityPanel({
           <div className="mt-3">
             <PhaseTracker events={events} done={done} />
           </div>
-          <p className="mt-3 text-xs text-neutral-400">
+          <p className="mt-3 text-xs text-fg-muted">
             {phases.length} of {phases[0]?.total ?? 4} phases · {events.length} events
           </p>
           <div className="mt-2">

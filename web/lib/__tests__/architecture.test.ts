@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 
-import { askUrl, focusFor, layout, sourceUrl } from "../architecture";
+import { askUrl, flowWalkthroughs, focusFor, layout, sourceUrl } from "../architecture";
+import type { ArchitectureGraph, Walkthrough } from "../types";
 import { pipelineView } from "@/components/__tests__/fixtures";
 
 describe("layout", () => {
@@ -50,5 +51,18 @@ describe("links and context", () => {
 
   it("encodes the question in the Ask URL", () => {
     expect(askUrl("j", "n:1", "Why & how?")).toBe("/r/j/ask?node=n%3A1&q=Why+%26+how%3F");
+  });
+});
+
+describe("flowWalkthroughs", () => {
+  const walk = (id: string, level: string, subsystem: string | null = null) =>
+    ({ id, level, subsystem, name: id, kind: "call", steps: [], description: "", provenance: "static" }) as unknown as Walkthrough;
+
+  it("lists each walkthrough once: overview first, then those inside a part", () => {
+    // walk:0 belongs to no part and is not the system walk, so it is in both sets.
+    const graph = {
+      walkthroughs: [walk("walk:system", "system"), walk("walk:0", "component"), walk("walk:1", "component", "sql")],
+    } as unknown as ArchitectureGraph;
+    expect(flowWalkthroughs(graph).map((w) => w.id)).toEqual(["walk:system", "walk:0", "walk:1"]);
   });
 });

@@ -30,6 +30,7 @@ from __future__ import annotations
 import statistics
 from datetime import UTC, datetime
 from enum import StrEnum
+from typing import Any
 
 from pydantic import BaseModel, Field, computed_field, model_validator
 from sqlalchemy import Float, case, cast, func, select
@@ -39,10 +40,12 @@ from repolab.analytics.events import AnalyticsEventType
 from repolab.db.models import (
     AgentRunRecord,
     AgentStepRecord,
+    AnalysisArtifactRecord,
     AnalyticsEventRecord,
     ExperimentRecord,
     ExperimentVariantRecord,
     Job,
+    JobEventRecord,
     LessonProgressRecord,
     LessonRecord,
     ModelCallRecord,
@@ -303,6 +306,7 @@ def build_dashboard(session: Session) -> Dashboard:
             _experiment_activity(session),
         ],
         operations=[
+            _progressive_analysis(session),
             _agent_performance(session),
             _tool_performance(session),
             _model_usage(session),
@@ -570,6 +574,206 @@ def _time_to_value(session: Session) -> MetricGroup:
                 samples=len(first_experiment),
                 detail=paired,
             ),
+        ],
+    )
+
+
+# The artifacts each milestone waits for. Timings are read from the job's own
+# persisted ``artifact_*`` events and measured from the job's creation.
+OVERVIEW_ARTIFACTS = ("repo.manifest", "architecture.structure")
+EAGER_ARTIFACTS = (
+    "repo.facts",
+    "repo.manifest",
+    "architecture.structure",
+    "architecture.runtime",
+    "architecture.source",
+    "architecture.components",
+    "architecture.summary",
+)
+SETTLED_EVENTS = ("artifact_ready", "artifact_failed", "artifact_blocked")
+
+
+def _artifact_timelines(session: Session) -> tuple[dict[str, dict[str, Any]], int, int, int]:
+    """Per job: when (seconds after submission) each artifact first settled.
+
+    Also the counts behind the rates: ready events, of which cache hits, and
+    failures. A job whose artifacts were all reused is kept apart (``cached``),
+    because averaging a two-second reuse into cold analyses would flatter both.
+    """
+    created = dict(session.execute(select(Job.id, Job.created_at)).all())
+    rows = session.execute(
+        select(
+            JobEventRecord.job_id,
+            JobEventRecord.type,
+            JobEventRecord.data,
+            JobEventRecord.created_at,
+        )
+        .where(JobEventRecord.type.in_(SETTLED_EVENTS))
+        .order_by(JobEventRecord.job_id, JobEventRecord.seq)
+    ).all()
+    jobs: dict[str, dict[str, Any]] = {}
+    ready = cache_hits = failures = 0
+    for job_id, event_type, data, at in rows:
+        artifact_type = (data or {}).get("artifact_type")
+        began = created.get(job_id)
+        if not artifact_type or began is None or at is None:
+            continue
+        timeline = jobs.setdefault(job_id, {"settled": {}, "cached": True, "failed": False})
+        if event_type == "artifact_ready":
+            ready += 1
+            if data.get("cache_hit"):
+                cache_hits += 1
+            else:
+                timeline["cached"] = False
+        elif event_type == "artifact_failed":
+            failures += 1
+            timeline["failed"] = True
+            timeline["cached"] = False
+        seconds = (_aware(at) - _aware(began)).total_seconds()
+        if seconds >= 0:
+            timeline["settled"].setdefault(artifact_type, seconds)
+    return jobs, ready, cache_hits, failures
+
+
+def _aware(moment: datetime) -> datetime:
+    return moment if moment.tzinfo else moment.replace(tzinfo=UTC)
+
+
+def _milestone(jobs: dict[str, dict[str, Any]], needed: tuple[str, ...]) -> list[float]:
+    """Seconds until every artifact in *needed* settled, for cold jobs that got there."""
+    values = []
+    for timeline in jobs.values():
+        settled = timeline["settled"]
+        if not timeline["cached"] and all(t in settled for t in needed):
+            values.append(max(settled[t] for t in needed))
+    return values
+
+
+def _progressive_analysis(session: Session) -> MetricGroup:
+    jobs, ready, cache_hits, failures = _artifact_timelines(session)
+    cold = "Cold analyses only: jobs whose artifacts were all reused are excluded."
+    manifest = _milestone(jobs, ("repo.manifest",))
+    overview = _milestone(jobs, OVERVIEW_ARTIFACTS)
+    summary = _milestone(jobs, ("architecture.summary",))
+    full = _milestone(jobs, EAGER_ARTIFACTS)
+    cached = [
+        max(t["settled"].values())
+        for t in jobs.values()
+        if t["cached"] and all(a in t["settled"] for a in EAGER_ARTIFACTS)
+    ]
+    meaningful = _paired_durations(
+        session, AnalyticsEventType.REPO_SUBMITTED, AnalyticsEventType.FIRST_MEANINGFUL_CONTENT
+    )
+    by_type: dict[str, list[float]] = {}
+    for artifact_type, duration_ms in session.execute(
+        select(AnalysisArtifactRecord.artifact_type, AnalysisArtifactRecord.duration_ms).where(
+            AnalysisArtifactRecord.status.in_(("ready", "partial")),
+            AnalysisArtifactRecord.duration_ms.isnot(None),
+        )
+    ).all():
+        by_type.setdefault(artifact_type, []).append(duration_ms / 1000)
+    settled = ready + failures
+    timing = "Measured from the job's creation to the artifact's persisted event."
+
+    def seconds(key: str, label: str, values: list[float], definition: str) -> Metric:
+        return _metric(
+            key,
+            label,
+            _median(values),
+            unit="s",
+            definition=definition,
+            source="job_events (artifact_*), jobs",
+            samples=len(values),
+            detail=f"{timing} {cold}",
+        )
+
+    return MetricGroup(
+        title="Progressive analysis",
+        subtitle="When each part of the analysis reached the screen, and how often it was reused",
+        metrics=[
+            _metric(
+                "time_to_first_meaningful_content",
+                "Time to First Meaningful Content (median)",
+                _median(meaningful),
+                unit="s",
+                definition=(
+                    "Median seconds from repo_submitted to first_meaningful_content -- the "
+                    "manifest and structure the Overview renders -- in the same job."
+                ),
+                source="analytics events",
+                samples=len(meaningful),
+                detail="Includes jobs answered from the cache.",
+            ),
+            seconds(
+                "time_to_manifest",
+                "Time to manifest (median)",
+                manifest,
+                "Median seconds until repo.manifest was ready.",
+            ),
+            seconds(
+                "time_to_overview",
+                "Time to overview (median)",
+                overview,
+                "Median seconds until the manifest and the architecture structure were both ready.",
+            ),
+            seconds(
+                "time_to_architecture_summary",
+                "Time to architecture summary (median)",
+                summary,
+                "Median seconds until architecture.summary was ready or had failed.",
+            ),
+            seconds(
+                "time_to_full_analysis",
+                "Time to full analysis (median)",
+                full,
+                "Median seconds until every eagerly generated artifact had settled.",
+            ),
+            _metric(
+                "time_to_full_analysis_cached",
+                "Time to full analysis from the cache (median)",
+                _median(cached),
+                unit="s",
+                definition="The same, for jobs whose every artifact was reused.",
+                source="job_events (artifact_*), jobs",
+                samples=len(cached),
+            ),
+            _metric(
+                "artifact_cache_hit_rate",
+                "Artifact cache hit rate",
+                _rate(cache_hits, ready),
+                unit="%",
+                definition="Share of artifact_ready events that reused the same commit's artifact.",
+                source="job_events (artifact_ready)",
+                samples=ready,
+            ),
+            _metric(
+                "artifact_failure_rate",
+                "Artifact failure rate",
+                _rate(failures, settled),
+                unit="%",
+                definition="Share of artifact generations that failed rather than became ready.",
+                source="job_events (artifact_ready, artifact_failed)",
+                samples=settled,
+            ),
+            _metric(
+                "artifact_on_demand_requests",
+                "On-demand artifact requests",
+                float(_count_events(session, AnalyticsEventType.ARTIFACT_REQUESTED)) or None,
+                definition="Artifacts claimed by a request (opening Architecture, a Retry).",
+                source="analytics events",
+            ),
+            *[
+                _metric(
+                    f"artifact_duration_{artifact_type.replace('.', '_')}",
+                    f"Generation time: {artifact_type} (median)",
+                    _median(values),
+                    unit="s",
+                    definition="Median seconds from generating to ready, per stored artifact.",
+                    source="analysis_artifacts",
+                    samples=len(values),
+                )
+                for artifact_type, values in sorted(by_type.items())
+            ],
         ],
     )
 

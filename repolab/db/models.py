@@ -167,6 +167,10 @@ class Job(Base):
     attempts: Mapped[int] = mapped_column(Integer, default=0)
     """How many times this job has been attempted, for retry state."""
 
+    commit_sha: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    """The commit being analysed, known as soon as it is resolved -- before the
+    ingestion exists -- so the job's artifacts can be found from the start."""
+
     last_seq: Mapped[int] = mapped_column(Integer, default=0)
     """Sequence of the most recent event, so a reader knows where the tail is."""
 
@@ -734,3 +738,69 @@ class ExperienceSessionRecord(Base):
 
     started_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now)
     last_activity: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now)
+
+
+class SourceFileRecord(Base):
+    """One file of a repository *at one commit*, kept so its lines can be shown.
+
+    The investigation's clone is deleted when it finishes; the files an
+    architecture, an answer or an experience cites are copied here first, so
+    the source viewer always shows the exact snapshot a claim was made
+    against -- never whatever the repository holds today.
+    """
+
+    __tablename__ = "source_files"
+    __table_args__ = (UniqueConstraint("repo_url", "commit_sha", "path", name="uq_source_file"),)
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    repo_url: Mapped[str] = mapped_column(String(1024), index=True)
+    commit_sha: Mapped[str] = mapped_column(String(64), index=True)
+    path: Mapped[str] = mapped_column(String(1024))
+    sha256: Mapped[str] = mapped_column(String(64))
+    size: Mapped[int] = mapped_column(Integer)
+    content: Mapped[str] = mapped_column(Text)
+    captured_by: Mapped[str] = mapped_column(String(32), default="architecture")
+    captured_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now)
+
+
+class AnalysisArtifactRecord(Base):
+    """One piece of what RepoLab knows about a repository at one commit.
+
+    Keyed by repository, commit, artifact type and analysis version: the same
+    snapshot is never analysed twice, and a new commit or a new algorithm never
+    reuses old results. Large artifacts point at where their data lives (the
+    manifest, the architecture graph); small ones carry it in ``payload``.
+    """
+
+    __tablename__ = "analysis_artifacts"
+    __table_args__ = (
+        UniqueConstraint(
+            "repo_url",
+            "commit_sha",
+            "artifact_type",
+            "analysis_version",
+            name="uq_analysis_artifact",
+        ),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    repo_url: Mapped[str] = mapped_column(String(1024), index=True)
+    commit_sha: Mapped[str] = mapped_column(String(64), index=True)
+    artifact_type: Mapped[str] = mapped_column(String(128))
+    analysis_version: Mapped[str] = mapped_column(String(32))
+    status: Mapped[str] = mapped_column(String(32), default="not_requested", index=True)
+    priority: Mapped[str] = mapped_column(String(8), default="P1")
+    payload: Mapped[dict[str, Any] | None] = mapped_column(JsonColumn, nullable=True)
+    error: Mapped[dict[str, Any] | None] = mapped_column(JsonColumn, nullable=True)
+    """``{error_code, stage, message, retryable}`` -- never a stack trace."""
+    dependencies: Mapped[list[str]] = mapped_column(JsonColumn, default=list)
+    job_id: Mapped[str | None] = mapped_column(String(36), nullable=True, index=True)
+    """The job that generated it (or last regenerated it)."""
+    model: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    attempts: Mapped[int] = mapped_column(Integer, default=0)
+    cache_hits: Mapped[int] = mapped_column(Integer, default=0)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now)
+    started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    duration_ms: Mapped[int | None] = mapped_column(Integer, nullable=True)

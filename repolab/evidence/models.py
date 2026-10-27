@@ -30,14 +30,37 @@ class MeasurementSource(StrEnum):
     APPLICATION_LOG = "application_log"
 
 
+class EvidenceStrength(StrEnum):
+    """What kind of file backs a reference -- how directly it shows the claim."""
+
+    DIRECT_SOURCE = "direct_source"
+    BUILD_METADATA = "build_metadata"
+    CONFIGURATION = "configuration"
+    TEST = "test"
+    IN_REPO_DOCUMENTATION = "in_repo_documentation"
+    INFERRED_FROM_MULTIPLE_FILES = "inferred_from_multiple_files"
+
+
 class CodeReference(BaseModel):
-    """A pointer into the repository under study."""
+    """A pointer into the repository under study.
+
+    ``verified`` is set only by :mod:`repolab.sources.resolve`, which computes
+    the line range itself from the investigated snapshot. A model may name a
+    file and a symbol; it never supplies a trusted line number.
+    """
 
     path: str
     start_line: int | None = Field(default=None, ge=1)
     end_line: int | None = Field(default=None, ge=1)
     commit_sha: str | None = None
     excerpt: str | None = None
+    symbol: str | None = None
+    """The class, function or other definition the range covers, when there is one."""
+    strength: EvidenceStrength | None = None
+    verified: bool = False
+    """True once RepoLab re-read the range at ``commit_sha`` and found the claim's anchor."""
+    verification: str | None = None
+    """Why it is (un)verified, or what the resolver corrected: ``corrected from line 12``."""
 
 
 class DocumentationReference(BaseModel):

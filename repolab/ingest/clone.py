@@ -22,6 +22,7 @@ The clone follows the remote's own default branch (verified during planning:
 
 from __future__ import annotations
 
+import re
 import shutil
 import subprocess
 import tempfile
@@ -78,6 +79,9 @@ class CloneResult(BaseModel):
     path: Path
     commit_sha: str
     branch: str | None = None
+    requested_commit: str | None = None
+    """The commit asked for, when one was. If it differs from ``commit_sha`` the
+    host refused it and the default branch was used instead -- callers say so."""
 
     model_config = {"arbitrary_types_allowed": True}
 
@@ -204,6 +208,108 @@ def shallow_clone(
     return CloneResult(path=destination, commit_sha=commit_sha, branch=branch)
 
 
+def _safety(command: str, *, allow_local_source: bool) -> list[str]:
+    argv = ["git"]
+    for option in SAFETY_CONFIG:
+        argv += ["-c", option]
+    if allow_local_source:
+        for option in _LOCAL_SOURCE_OVERRIDES:
+            argv += ["-c", option]
+    argv.append(command)
+    return argv
+
+
+def resolve_commit(
+    repo_url: RepoUrl,
+    *,
+    limits: IngestLimits = DEFAULT_LIMITS,
+    allow_local_source: bool = False,
+) -> str | None:
+    """The commit the default branch points at, without cloning (``git ls-remote``).
+
+    ``None`` when the host cannot say -- the caller then clones and reads the
+    commit from the checkout. Used to find work already done for this snapshot.
+    """
+    with tempfile.TemporaryDirectory(prefix="repolab-githome-") as home:
+        env = _git_env(Path(home), allow_local_source=allow_local_source)
+        try:
+            result = _run_git(
+                [
+                    *_safety("ls-remote", allow_local_source=allow_local_source),
+                    "--",
+                    repo_url.normalized,
+                    "HEAD",
+                ],
+                cwd=None,
+                env=env,
+                timeout=min(60.0, limits.clone_timeout_seconds),
+            )
+        except CloneError:
+            return None
+    if result.returncode != 0:
+        return None
+    for line in result.stdout.splitlines():
+        sha, _, ref = line.partition("\t")
+        if ref.strip() == "HEAD" and re.fullmatch(r"[0-9a-f]{40,64}", sha.strip()):
+            return sha.strip()
+    return None
+
+
+def fetch_commit(
+    repo_url: RepoUrl,
+    destination: Path,
+    commit_sha: str,
+    *,
+    limits: IngestLimits = DEFAULT_LIMITS,
+    allow_local_source: bool = False,
+) -> CloneResult:
+    """Check out exactly *commit_sha*, shallowly, under the same hardening as a clone.
+
+    ``git init`` + ``git fetch --depth 1 <url> <sha>`` + ``checkout FETCH_HEAD``:
+    a later answer or experiment reads the very snapshot the investigation did,
+    not whatever the default branch has moved on to.
+
+    Raises:
+        CloneError: if the host will not serve that commit.
+    """
+    if not re.fullmatch(r"[0-9a-f]{7,64}", commit_sha):
+        raise CloneError("not a commit SHA")
+    destination = Path(destination)
+    destination.mkdir(parents=True, exist_ok=True)
+    with tempfile.TemporaryDirectory(prefix="repolab-githome-") as home:
+        env = _git_env(Path(home), allow_local_source=allow_local_source)
+        timeout = limits.clone_timeout_seconds
+        flags = {"allow_local_source": allow_local_source}
+        steps: list[tuple[str, list[str], Path | None]] = [
+            ("init", [*_safety("init", **flags), "--quiet", str(destination)], None),
+            (
+                "fetch",
+                [
+                    *_safety("fetch", **flags),
+                    *("--depth", "1", "--no-tags", "--quiet", "--"),
+                    repo_url.normalized,
+                    commit_sha,
+                ],
+                destination,
+            ),
+            (
+                "checkout",
+                [*_safety("checkout", **flags), "--quiet", "--detach", "FETCH_HEAD"],
+                destination,
+            ),
+        ]
+        log.info("ingest.fetch_commit_started", repo=repo_url.slug, commit=commit_sha[:12])
+        for name, argv, cwd in steps:
+            result = _run_git(argv, cwd=cwd, env=env, timeout=timeout)
+            if result.returncode != 0:
+                detail = (result.stderr or result.stdout or "").strip().splitlines()
+                raise CloneError(f"git {name} failed: {detail[-1] if detail else 'no output'}")
+        got = _rev_parse(destination, env, limits)
+    if not got.startswith(commit_sha) and not commit_sha.startswith(got):
+        raise CloneError(f"asked for {commit_sha[:12]} but checked out {got[:12]}")
+    return CloneResult(path=destination, commit_sha=got, branch=None, requested_commit=commit_sha)
+
+
 def _rev_parse(path: Path, env: dict[str, str], limits: IngestLimits) -> str:
     result = _run_git(
         ["git", "rev-parse", "HEAD"],
@@ -242,17 +348,31 @@ class TemporaryClone:
         limits: IngestLimits = DEFAULT_LIMITS,
         allow_local_source: bool = False,
         submodules: bool = False,
+        commit: str | None = None,
     ) -> None:
         self._repo_url = repo_url
         self._limits = limits
         self._allow_local_source = allow_local_source
         self._submodules = submodules
+        self._commit = commit
         self._root: Path | None = None
 
     def __enter__(self) -> CloneResult:
         self._root = Path(tempfile.mkdtemp(prefix="repolab-ingest-"))
+        if self._commit:
+            try:
+                return fetch_commit(
+                    self._repo_url,
+                    self._root / "pinned",
+                    self._commit,
+                    limits=self._limits,
+                    allow_local_source=self._allow_local_source,
+                )
+            except CloneError as exc:
+                # Recorded, not hidden: the result says which commit it really is.
+                log.warning("ingest.fetch_commit_refused", commit=self._commit[:12], error=str(exc))
         try:
-            return shallow_clone(
+            result = shallow_clone(
                 self._repo_url,
                 self._root / "repo",
                 limits=self._limits,
@@ -262,6 +382,8 @@ class TemporaryClone:
         except BaseException:
             self._cleanup()
             raise
+        result.requested_commit = self._commit
+        return result
 
     def __exit__(self, *exc: object) -> None:
         self._cleanup()

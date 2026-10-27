@@ -15,6 +15,7 @@
 import { useMemo, useState } from "react";
 
 import { ClaimList, EvidencePanel, UnsupportedClaims } from "./evidence";
+import { useSourceViewer } from "./source-ref";
 import { Badge, Note } from "./ui";
 import {
   SHAPE_LABEL,
@@ -671,6 +672,7 @@ export function CodeDrawer({
   commitSha: string;
   onClose: () => void;
 }) {
+  const viewer = useSourceViewer();
   const link = sourceUrl(repoUrl, commitSha, {
     path: source.path,
     start_line: source.line,
@@ -705,11 +707,32 @@ export function CodeDrawer({
       <p className="mt-1 text-sm" data-testid="drawer-reason">
         {source.reason}
       </p>
-      {link && (
-        <a href={link} target="_blank" rel="noreferrer" data-testid="drawer-link" className="mt-4 inline-block text-xs underline underline-offset-2">
-          Open at commit {commitSha.slice(0, 7)} ↗
-        </a>
-      )}
+      <div className="mt-4 flex flex-wrap items-center gap-3">
+        {viewer && (
+          <button
+            type="button"
+            data-testid="drawer-open-viewer"
+            onClick={() => {
+              onClose();
+              viewer.open({
+                path: source.path,
+                start_line: source.line,
+                end_line: source.reference?.end_line ?? source.line,
+                commit_sha: commitSha,
+                reason: source.reason,
+              });
+            }}
+            className="rounded-md border border-line px-3 py-1.5 text-xs font-medium text-fg hover:bg-surface-hover"
+          >
+            Open the whole file at {commitSha.slice(0, 7)}
+          </button>
+        )}
+        {link && (
+          <a href={link} target="_blank" rel="noreferrer" data-testid="drawer-link" className="text-xs underline underline-offset-2">
+            Open at commit {commitSha.slice(0, 7)} ↗
+          </a>
+        )}
+      </div>
     </aside>
   );
 }

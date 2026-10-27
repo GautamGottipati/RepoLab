@@ -62,6 +62,7 @@ from repolab.evidence.models import DocumentationReference
 from repolab.llm import LLMError, Purpose
 from repolab.manifest.architecture import GraphSource
 from repolab.manifest.models import RepoManifest
+from repolab.sources.resolve import parse_citation, verify_reference
 
 log = structlog.get_logger(__name__)
 
@@ -803,7 +804,9 @@ SYSTEM_PROMPT = (
     "Rules:\n"
     "- Every concept must list subsystem ids, component ids, or evidence copied "
     "exactly from the input: a 'path' (a file or a directory listed), a "
-    "'path:line', or a documentation URL.\n"
+    "'path:line' exactly as shown, a 'path#Name' naming a class or function "
+    "defined in that file, or a documentation URL. Never write a line number of "
+    "your own.\n"
     "- Every relationship must cite one such piece of evidence.\n"
     "- The walkthrough's consecutive steps must be concepts you related.\n"
     "- Only use ids that appear in the input. Never invent files, components, "
@@ -830,7 +833,9 @@ class OrientationConcept(BaseModel):
     role: str = Field(default="", description="Its role in the system, one short sentence")
     subsystem_ids: list[str] = Field(default_factory=list)
     member_ids: list[str] = Field(default_factory=list, description="Component ids")
-    evidence: list[str] = Field(default_factory=list, description="'path', 'path:line' or URL")
+    evidence: list[str] = Field(
+        default_factory=list, description="'path', 'path:line' as shown, 'path#Name', or URL"
+    )
 
 
 class OrientationLink(BaseModel):
@@ -925,12 +930,35 @@ def build_orientation_prompt(
     return "\n".join(lines)
 
 
+class _IndexSnapshot:
+    """The architecture's source index, as a snapshot the resolver can read."""
+
+    def __init__(self, index: SourceIndex) -> None:
+        self.index = index
+        self.commit_sha = index.commit_sha
+
+    def exists(self, path: str) -> bool:
+        return path in self.index.all_paths
+
+    def text(self, path: str) -> str | None:
+        return self.index.text(path)
+
+
 class _Citations:
     """Resolves what the model cited into evidence, or nothing."""
 
-    def __init__(self, graph: ArchitectureGraph, index: SourceIndex, facts: FactSheet) -> None:
+    def __init__(
+        self,
+        graph: ArchitectureGraph,
+        index: SourceIndex,
+        facts: FactSheet,
+        shown: set[str] | None = None,
+    ) -> None:
         self.graph = graph
         self.index = index
+        self.shown = shown
+        """Every ``path:line`` the prompt showed. A line the model wrote itself is
+        never evidence: it is reduced to the file it names."""
         self.docs = {d.url.split("#", 1)[0].rstrip("/"): d for d in facts.docs}
         self.directories = {
             "/".join(p.split("/")[:depth])
@@ -960,11 +988,24 @@ class _Citations:
         node = self.graph.node(value)
         if node is not None:
             return Evidence(kind=EvidenceKind.COMPONENT, label=node.label, target_id=node.id)
-        path, _, line_text = value.rpartition(":")
-        if not (path and line_text.isdigit()):
-            path, line_text = value, ""
+        path, line, symbol = parse_citation(value)
         path = path.rstrip("/")
-        line = int(line_text) if line_text else None
+        if symbol:
+            ref = verify_reference(_IndexSnapshot(self.index), path, symbol=symbol)
+            if not ref.verified:
+                return None
+            return Evidence(
+                kind=evidence_kind(ref.path),
+                label=f"{ref.path}#{symbol}",
+                path=ref.path,
+                line=ref.start_line,
+                end_line=ref.end_line,
+                symbol=symbol,
+                excerpt=ref.excerpt,
+                verified=True,
+            )
+        if line is not None and self.shown is not None and f"{path}:{line}" not in self.shown:
+            line = None
         if path in self.directories and line is None:
             return Evidence(kind=evidence_kind(path + "/x"), label=f"{path}/", path=path)
         if not self.index.line_exists(path, line):
@@ -994,12 +1035,13 @@ async def orient(
 
     if router is None:
         return graph
+    prompt = build_orientation_prompt(graph, facts, decision)
     try:
         completion = await router.super(
             purpose=Purpose.REPO_ARCHITECTURE,
             schema=RepositoryOrientation,
             system=SYSTEM_PROMPT,
-            prompt=build_orientation_prompt(graph, facts, decision),
+            prompt=prompt,
             max_tokens=ORIENTATION_MAX_TOKENS,
             timeout_seconds=ORIENTATION_TIMEOUT_SECONDS,
         )
@@ -1010,7 +1052,8 @@ async def orient(
             "and its structure."
         )
         return graph
-    return apply_orientation(graph, completion.value, index, facts, decision)
+    shown = set(re.findall(r"[\w./-]+:\d+", prompt))
+    return apply_orientation(graph, completion.value, index, facts, decision, shown)
 
 
 def _text(value: str, limit: int, drop: Any) -> str | None:
@@ -1029,6 +1072,7 @@ def apply_orientation(
     index: SourceIndex,
     facts: FactSheet,
     decision: TypeDecision,
+    shown: set[str] | None = None,
 ) -> ArchitectureGraph:
     """Merge Super's orientation, keeping only what cites real evidence."""
     dropped: dict[str, int] = {}
@@ -1036,7 +1080,7 @@ def apply_orientation(
     def drop(reason: str) -> None:
         dropped[reason] = dropped.get(reason, 0) + 1
 
-    citations = _Citations(graph, index, facts)
+    citations = _Citations(graph, index, facts, shown)
     accepted = False
     understanding = graph.understanding
     assert understanding is not None

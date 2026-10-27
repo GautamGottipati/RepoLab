@@ -15,6 +15,7 @@ import { useSearchParams } from "next/navigation";
 import { Suspense, useEffect, useState } from "react";
 
 import { ArchitectureExperience } from "@/components/architecture-experience";
+import { useArtifact } from "@/components/artifact";
 import { Panel, Skeleton } from "@/components/ui";
 import { api, optional } from "@/lib/api";
 import type { RuntimeOverlay } from "@/lib/types";
@@ -34,6 +35,15 @@ function Architecture() {
   const { jobId, architecture, manifest } = useWorkspace();
   const searchParams = useSearchParams();
   const [overlay, setOverlay] = useState<RuntimeOverlay | null>(null);
+  const naming = useArtifact("architecture.runtime_naming");
+  const requestNaming = naming.request;
+  const hasArtifacts = naming.state !== null;
+
+  // Naming the runtime components costs a Super call, so it is made only once
+  // someone opens Architecture. Idempotent on the backend; once per page here.
+  useEffect(() => {
+    if (hasArtifacts) requestNaming();
+  }, [hasArtifacts, requestNaming]);
 
   useEffect(() => {
     if (!architecture) return;
@@ -71,6 +81,8 @@ function Architecture() {
       initialSubsystem={searchParams.get("subsystem")}
       initialSelection={searchParams.get("node")}
       initialPerspective={searchParams.get("view")}
+      naming={naming.state?.status ?? null}
+      onRetryNaming={naming.retry}
     />
   );
 }

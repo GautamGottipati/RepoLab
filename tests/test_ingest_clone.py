@@ -157,3 +157,60 @@ class TestLocalSourcesAreRefusedByDefault:
             "https://example.com/a/b", Path("/tmp/x"), allow_local_source=True
         )
         assert "protocol.file.allow=always" in command
+
+
+class TestPinnedToACommit:
+    """An answer reads the same snapshot the investigation did, not today's branch."""
+
+    def two_commits(self, make_repo) -> tuple[Path, str, str]:
+        root, first = make_repo({"app.py": "VERSION = 1\n"})
+        (root / "app.py").write_text("VERSION = 2\n")
+        subprocess.run(["git", "add", "-A"], cwd=root, check=True)
+        subprocess.run(
+            [
+                "git",
+                "-c",
+                "user.email=t@repolab.invalid",
+                "-c",
+                "user.name=T",
+                "commit",
+                "-qm",
+                "second",
+            ],
+            cwd=root,
+            check=True,
+        )
+        second = subprocess.run(
+            ["git", "rev-parse", "HEAD"], cwd=root, check=True, capture_output=True, text=True
+        ).stdout.strip()
+        # A host that serves any reachable commit, as GitHub does.
+        subprocess.run(
+            ["git", "config", "uploadpack.allowReachableSHA1InWant", "true"], cwd=root, check=True
+        )
+        return root, first, second
+
+    def test_the_investigated_commit_is_checked_out_even_after_the_branch_moved(
+        self, make_repo, tmp_path: Path
+    ) -> None:
+        from repolab.ingest.clone import fetch_commit
+
+        root, first, _ = self.two_commits(make_repo)
+        result = fetch_commit(file_url(root), tmp_path / "pinned", first, allow_local_source=True)
+        assert result.commit_sha == first and result.requested_commit == first
+        assert (tmp_path / "pinned" / "app.py").read_text() == "VERSION = 1\n"
+
+    def test_a_refused_commit_falls_back_and_says_so(self, make_repo) -> None:
+        root, _, second = self.two_commits(make_repo)
+        missing = "0" * 40
+        with TemporaryClone(file_url(root), allow_local_source=True, commit=missing) as clone:
+            assert clone.commit_sha == second
+            assert clone.requested_commit == missing  # the caller can see it was not honoured
+
+    def test_only_a_sha_is_accepted(self, make_repo, tmp_path: Path) -> None:
+        from repolab.ingest.clone import fetch_commit
+
+        root, _, _ = self.two_commits(make_repo)
+        with pytest.raises(CloneError):
+            fetch_commit(
+                file_url(root), tmp_path / "x", "--upload-pack=evil", allow_local_source=True
+            )

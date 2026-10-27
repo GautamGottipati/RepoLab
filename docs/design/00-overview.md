@@ -115,3 +115,42 @@ ProgressSteps, Tabs, Chips, Drawer, ActionLink, icons), re-exported by
 **Empty** — says what happened, why, and what to do next (`EmptyState`).
 **Live** — something is visibly happening; the activity chip and drawer are the proof.
 **Error** — the real message from the API, not "something went wrong".
+
+## Long waits
+
+Every long wait renders `WorkingStatus` (`web/components/working-status.tsx`).
+This covers the analysis, a section still being made, and experience
+preparation.
+
+**What it shows:**
+- what RepoLab is doing, as a headline and a supporting line;
+- a quiet "Working for 1m 5s".
+
+**Where the words come from:**
+- The backend reports a *current activity*: a machine key set where that work
+  really begins, such as `architecture.components`, `finding_entrypoints` or
+  `image`.
+- `ACTIVITY_COPY` maps each key to words. The headline changes only when the
+  activity does; nothing cycles on a timer.
+
+**How time changes it:** only the tone changes, never the step.
+- After 30 s on one step: "This step is taking a little longer than usual."
+- After 60 s: "Still working · <step> · Large repositories can take a little
+  longer."
+
+**Heartbeat vs progress:**
+- **Progress** is a milestone event, persisted and replayed.
+- **Heartbeat** is the worker saying it is alive. It is ephemeral, in Redis
+  (`repolab/events/liveness.py`), and refreshed every 5 s by a thread.
+- A model call can run for a minute with no milestone. **Silence is never
+  called a stall.**
+
+**When it warns:** the single amber state, "⚠ Processing may have been
+interrupted", requires `health: "interrupted"`. That means the heartbeat is
+gone (45 s TTL) on a task running for over 90 s. It offers **Retry**, which
+re-submits cache-aware or restarts the preparation. Healthy work never uses
+amber or rose.
+
+**Developer diagnostics:** heartbeat age, last event age, worker, activity key
+and stream status. They're hidden unless `?debug=1` (remembered; `?debug=0`
+turns it off) or `NEXT_PUBLIC_REPOLAB_DEBUG=1`.

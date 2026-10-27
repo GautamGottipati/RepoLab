@@ -21,6 +21,8 @@ import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 
 import { phasesFrom } from "@/components/activity";
+import { ArtifactSection } from "@/components/artifact";
+import { WorkingStatus } from "@/components/working-status";
 import { RealityBadge } from "@/components/experience-workspace";
 import {
   ActionLink,
@@ -45,7 +47,7 @@ import {
 import { api, ApiError, optional } from "@/lib/api";
 import { field, isBoolean, isNumber, isString } from "@/lib/events";
 import { count, shortHash } from "@/lib/format";
-import type { ExperienceDefinition, ExperienceListing, JobEvent } from "@/lib/types";
+import type { ExperienceDefinition, ExperienceListing, JobEvent, JobState } from "@/lib/types";
 
 import { useWorkspace } from "./workspace";
 
@@ -57,6 +59,8 @@ export default function OverviewPage() {
   const [listing, setListing] = useState<ExperienceListing | null>(null);
   const [listingLoaded, setListingLoaded] = useState(false);
 
+  // Ranked from the manifest and the architecture: fetched again as either
+  // arrives or is refined.
   useEffect(() => {
     if (!manifest) return;
     let cancelled = false;
@@ -70,12 +74,12 @@ export default function OverviewPage() {
     return () => {
       cancelled = true;
     };
-  }, [jobId, manifest]);
+  }, [jobId, manifest, architecture, experiences]);
 
   const understanding = architecture?.graph.understanding ?? null;
   const analyzing = !manifest && job?.status !== "failed";
 
-  if (analyzing) return <Analyzing events={events} />;
+  if (analyzing) return <Analyzing events={events} job={job} />;
   if (!manifest) {
     return (
       <EmptyState title="RepoLab couldn't finish reading this repository">
@@ -118,18 +122,20 @@ export default function OverviewPage() {
         )}
       </div>
 
-      {explanation && (
-        <Section title="What is this?">
-          <p className="max-w-3xl text-body leading-7 text-fg" data-testid="what-is-this">
-            {explanation}
-          </p>
-          {explanationInferred && (
-            <p className="mt-2 text-xs text-ai-fg">
-              Written by Nemotron from the repository&apos;s own files; the evidence is in Architecture.
+      <ArtifactSection type="architecture.summary" available={explanation !== null} minHeight="5.5rem">
+        {explanation && (
+          <Section title="What is this?">
+            <p className="max-w-3xl text-body leading-7 text-fg" data-testid="what-is-this">
+              {explanation}
             </p>
-          )}
-        </Section>
-      )}
+            {explanationInferred && (
+              <p className="mt-2 text-xs text-ai-fg">
+                Written by Nemotron from the repository&apos;s own files; the evidence is in Architecture.
+              </p>
+            )}
+          </Section>
+        )}
+      </ArtifactSection>
 
       <Section title="Start here" data-testid="start-here">
         {!listingLoaded ? (
@@ -174,6 +180,14 @@ export default function OverviewPage() {
         )}
       </Section>
 
+      <ArtifactSection
+        type="architecture.summary"
+        available={concepts.length > 0}
+        minHeight="9rem"
+        data-testid="artifact-key-components"
+        quiet
+        skeleton={<Skeleton rows={2} />}
+      >
       {concepts.length > 0 && (
         <Section
           title="Key components"
@@ -200,6 +214,7 @@ export default function OverviewPage() {
           </ul>
         </Section>
       )}
+      </ArtifactSection>
 
       {primary && (
         <Section title="Other ways in">
@@ -237,7 +252,7 @@ export default function OverviewPage() {
 }
 
 /** The real steps the agent has announced, while it works. */
-function Analyzing({ events }: { events: JobEvent[] }) {
+function Analyzing({ events, job }: { events: JobEvent[]; job: JobState | null }) {
   const phases = phasesFrom(events);
   const findings = findingsFrom(events);
   const total = phases[0]?.total ?? null;
@@ -252,7 +267,17 @@ function Analyzing({ events }: { events: JobEvent[] }) {
         title="Understanding the repository"
         description="RepoLab is reading the code to find what it is, how it runs and what you can do with it. Nothing in the repository is executed at this stage."
       />
-      <Card className="p-5">
+      <Card className="flex flex-col gap-5 p-5">
+        {job?.health !== "interrupted" && (
+          // What the worker is doing right now, from its heartbeat; the
+          // interrupted case is the workspace's banner, not this card's.
+          <WorkingStatus
+            activity={job?.activity?.key}
+            stage={job?.activity?.stage ?? "investigation"}
+            startedAt={job?.activity?.started_at}
+            health={job?.health}
+          />
+        )}
         {steps.length === 0 ? (
           <p className="text-sm text-fg-secondary">Starting…</p>
         ) : (

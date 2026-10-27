@@ -17,15 +17,21 @@ from repolab.architecture.analyzers.services import ServiceAnalyzer
 from repolab.architecture.analyzers.storage import StorageAnalyzer
 from repolab.architecture.analyzers.workflow import WorkflowAnalyzer
 from repolab.architecture.assemble import assemble, fit
+from repolab.architecture.code_model import Corpus, build_code_model, reading_path
 from repolab.architecture.models import ArchitectureGraph
+from repolab.architecture.modules import module_dependencies
+from repolab.architecture.runtime_synthesis import name_runtime
 from repolab.architecture.source import SourceIndex
 from repolab.architecture.subsystems import discover_subsystems, rank
 from repolab.architecture.synthesis import SynthesisRouter, synthesise
-from repolab.architecture.understanding import orient
+from repolab.architecture.understanding import orient, readme_path
 from repolab.architecture.validate import validate
+from repolab.architecture.verify import verify_graph
 from repolab.evidence.models import DocumentationReference
 from repolab.ingest.detectors import DetectionContext, DetectionOutcome
+from repolab.ingest.priority import prioritized
 from repolab.manifest.models import RepoManifest
+from repolab.sources import CloneSnapshot
 
 #: Generic analyzers, in order. Library runs last: it only describes a
 #: repository nothing more specific matched.
@@ -90,4 +96,27 @@ async def build_architecture(
     graph = validate(await synthesise(graph, index, router, summaries=summaries), index)
     rank(graph, index, manifest)
     graph = await orient(graph, index, manifest, router, docs=docs)
-    return validate(graph, index)
+    graph = validate(graph, index)
+    return await runtime_architecture(graph, context, index, router)
+
+
+async def runtime_architecture(
+    graph: ArchitectureGraph,
+    context: DetectionContext,
+    index: SourceIndex,
+    router: SynthesisRouter | None,
+) -> ArchitectureGraph:
+    """The machinery under the surfaces: key types, how they use each other,
+    runtime components, flows, module dependencies -- and every reference in
+    the graph checked against the snapshot. See :mod:`repolab.architecture.code_model`."""
+    paths = [entry.path for entry in prioritized(context.tree.files)]
+    snapshot = CloneSnapshot(root=context.root, commit_sha=index.commit_sha, paths=set(paths))
+    corpus = Corpus.read(context.root, index.commit_sha, paths)
+    readme = (index.text(found) or "") if (found := readme_path(index)) else ""
+    graph = build_code_model(graph, corpus, readme=readme)
+    module_dependencies(graph, snapshot, paths)
+    graph = await name_runtime(graph, router)
+    graph = verify_graph(graph, snapshot)
+    # Ordered after verification, which is what makes a reference eligible.
+    graph.reading_path = reading_path(graph)
+    return graph

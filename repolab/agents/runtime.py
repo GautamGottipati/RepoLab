@@ -125,7 +125,7 @@ class AgentRuntime:
 
         # Announce the user-facing phase this tool belongs to, before the tool
         # events themselves. The vocabulary lives in repolab.events.activity, so
-        # a watcher gets "Finding Spark entry points" rather than
+        # a watcher gets "Finding entry points" rather than
         # "detect_entrypoints" without the runtime knowing any labels.
         if self.activity is not None:
             self.activity.observe(tool=request.tool)

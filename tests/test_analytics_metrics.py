@@ -462,6 +462,7 @@ class TestProvenance:
             "Experiments",
         ]
         assert [group.title for group in dashboard.operations] == [
+            "Progressive analysis",
             "Agent performance",
             "Tool layer",
             "Model usage",

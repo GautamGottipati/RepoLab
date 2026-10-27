@@ -28,6 +28,7 @@ from repolab.db import build_engine, build_session_factory, session_scope
 from repolab.db.jobs import get_job, mark_finished, mark_running
 from repolab.db.store import load_architecture, load_manifest
 from repolab.events import DbEventEmitter, EventType, JobStatus
+from repolab.events.liveness import ActivitySink, NoLiveness, liveness_for, session_key
 from repolab.experiences import sessions as store
 from repolab.experiences.adapters import spark as spark_adapter
 from repolab.experiences.adapters.library import SOURCE_ROOT as LIBRARY_ROOT
@@ -69,6 +70,7 @@ class _Context:
             mark_running(session, job_id)
             session.commit()
         self.emitter = DbEventEmitter(job_id, sessions, start_seq=start_seq)
+        self.liveness: ActivitySink = NoLiveness()
 
     def emit(self, kind: EventType, message: str, **data: Any) -> None:
         self.emitter.emit(kind, message, step=STEP, data=data)
@@ -93,8 +95,13 @@ def _guard(task):
 
     def wrapper(job_id: str, session_id: str, *args: Any) -> str:
         context = _Context(job_id)
+        # Preparation (no extra args) can run for many minutes -- an image pull,
+        # a source build -- so it reports a heartbeat and its current step.
+        if not args:
+            context.liveness = liveness_for(session_key(session_id))
         try:
-            outcome = asyncio.run(task(context, session_id, *args))
+            with context.liveness:
+                outcome = asyncio.run(task(context, session_id, *args))
         except Exception as exc:
             failure = explain(exc)
             context.emit(EventType.FAILED, failure.summary, **failure.model_dump_public())
@@ -133,6 +140,7 @@ async def _prepare(context: _Context, session_id: str) -> str:
             session.commit()
 
     def step(name: str, detail: str, status: str = "done") -> None:
+        context.liveness.set_activity("experience", name)
         state.steps.append({"name": name, "status": status, "detail": detail})
         context.emit(EventType.STEP_DONE if status == "done" else EventType.STEP_STARTED, detail)
         save()
@@ -235,6 +243,7 @@ async def _spark_smoke(context, state, save, step, *, official: bool, manifest) 
 async def _ensure(context: _Context, image: str) -> None:
     from repolab.sandbox.docker import ensure_image
 
+    context.liveness.set_activity("experience", "image")
     context.emit(EventType.STEP_STARTED, f"preparing the image {image}")
     status = await asyncio.to_thread(ensure_image, image)
     if not status.ready:

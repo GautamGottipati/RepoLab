@@ -25,8 +25,11 @@ vi.mock("@/lib/api", () => ({
       last_seq: 0,
       event_count: 0,
       elapsed_seconds: 12,
-      stalled: false,
-      stall_summary: "",
+      health: "working",
+      activity: null,
+      heartbeat_at: null,
+      worker: null,
+      last_progress_at: null,
       error: null,
       ingestion_id: null,
     })),
@@ -41,7 +44,7 @@ vi.mock("@/lib/events", async (original) => ({
   ...(await original<typeof import("@/lib/events")>()),
   useEventStream: () => ({ events: state.events, status: "open" }),
 }));
-vi.mock("next/navigation", () => ({ usePathname: () => state.pathname }));
+vi.mock("next/navigation", () => ({ usePathname: () => state.pathname, useRouter: () => ({ push: vi.fn() }) }));
 
 import { WorkspaceShell } from "../workspace";
 

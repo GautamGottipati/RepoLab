@@ -30,7 +30,7 @@ from pydantic import BaseModel, Field, model_validator
 from repolab.evidence.models import CodeReference
 from repolab.manifest.architecture import GraphSource
 
-SCHEMA_VERSION = 3
+SCHEMA_VERSION = 4
 
 #: The oldest version :func:`load_graph` reads directly; newer fields default.
 DIRECTLY_READABLE = 2
@@ -175,6 +175,10 @@ class Evidence(BaseModel):
     url: str | None = None
     target_id: str | None = None
     excerpt: str | None = None
+    end_line: int | None = None
+    symbol: str | None = None
+    verified: bool = False
+    """True once RepoLab re-read ``path`` at the investigated commit and found the anchor."""
 
 
 class Completeness(StrEnum):
@@ -273,6 +277,16 @@ class StartingPoint(BaseModel):
     """Child areas worth knowing, e.g. ``scheduler``, ``storage`` -- from the tree."""
 
 
+class ModuleDependency(BaseModel):
+    """One subsystem needing another, as its build file or an import says."""
+
+    target: str
+    """The subsystem depended on."""
+    via: str
+    """``maven``, ``gradle``, ``sbt``, ``npm``, ``cargo``, ``go`` or ``import``."""
+    evidence: CodeReference
+
+
 class Subsystem(BaseModel):
     """A major part of the repository. Membership comes from paths, never a model."""
 
@@ -299,6 +313,12 @@ class Subsystem(BaseModel):
     evidence: list[Evidence] = Field(default_factory=list)
     provenance: Provenance = Provenance.STATIC
     inferred_fields: list[str] = Field(default_factory=list)
+
+    # -- schema 4: module relationships, from build files and imports -------------
+    depends_on: list[ModuleDependency] = Field(default_factory=list)
+    used_by: list[str] = Field(default_factory=list)
+    """Ids of subsystems whose build or imports depend on this one."""
+    key_packages: list[str] = Field(default_factory=list)
 
     def contains(self, path: str) -> bool:
         return any(p == "" or path == p or path.startswith(p + "/") for p in self.paths)
@@ -431,6 +451,118 @@ class RepositoryUnderstanding(BaseModel):
     """Fields Nemotron wrote. Anything else was quoted or computed."""
 
 
+# -- schema 4: the runtime architecture, from verified code ---------------------
+
+
+class KeyAbstraction(BaseModel):
+    """A central type in the code, ranked by how much of the repository uses it.
+
+    Its definition range was computed and re-read by :mod:`repolab.sources`.
+    """
+
+    id: str
+    name: str
+    kind: str
+    definition: CodeReference
+    referenced_by: int = 0
+    """How many other scanned files mention it."""
+    subsystem: str | None = None
+    usages: list[CodeReference] = Field(default_factory=list)
+    """A few verified places that use it."""
+
+
+class CodeRelationType(StrEnum):
+    CREATES = "creates"
+    CALLS = "calls"
+    EXTENDS = "extends"
+    REFERENCES = "references"
+    """Named in the code, without a call or construction visible on that line."""
+
+
+class CodeRelation(BaseModel):
+    """One abstraction's code naming another, at a verified line."""
+
+    source: str
+    target: str
+    type: CodeRelationType
+    evidence: CodeReference
+
+
+class Responsibility(BaseModel):
+    text: str
+    reference: CodeReference
+    provenance: Provenance = Provenance.INFERRED
+
+
+class RuntimeComponent(BaseModel):
+    """A part of the running system, made of verified definitions.
+
+    Not a directory: "Scheduler", "API server", "Executor" -- whatever the
+    evidence supports. Its members are :class:`KeyAbstraction` ids, and every
+    responsibility points at a verified range.
+    """
+
+    id: str
+    name: str
+    description: str | None = None
+    members: list[str] = Field(default_factory=list)
+    responsibilities: list[Responsibility] = Field(default_factory=list)
+    source_references: list[CodeReference] = Field(default_factory=list)
+    subsystem_ids: list[str] = Field(default_factory=list)
+    node_ids: list[str] = Field(default_factory=list)
+    """Detected components (analyzers) whose code lives in the same files."""
+    provenance: Provenance = Provenance.STATIC
+    inferred_fields: list[str] = Field(default_factory=list)
+
+
+class RuntimeLink(BaseModel):
+    """What passes between two runtime components, and where the code shows it."""
+
+    source: str
+    target: str
+    type: CodeRelationType
+    label: str | None = None
+    """What moves along the arrow ("tasks", "HTTP request"), when it can be said."""
+    label_provenance: Provenance = Provenance.INFERRED
+    evidence: list[CodeReference] = Field(default_factory=list)
+
+
+class RuntimeModel(BaseModel):
+    components: list[RuntimeComponent] = Field(default_factory=list)
+    links: list[RuntimeLink] = Field(default_factory=list)
+    provenance: Provenance = Provenance.STATIC
+
+
+class FlowStep(BaseModel):
+    sequence: int
+    component: str
+    action: str
+    input: str | None = None
+    output: str | None = None
+    references: list[CodeReference] = Field(default_factory=list)
+    """The verified line where this step hands over to the next."""
+
+
+class Flow(BaseModel):
+    """An end-to-end path through runtime components, along verified links."""
+
+    id: str
+    name: str
+    description: str | None = None
+    steps: list[FlowStep]
+    ordered: bool = False
+    """True only when every hand-over is a call or construction RepoLab found
+    in the caller's own code -- the condition for drawing a sequence diagram."""
+    provenance: Provenance = Provenance.STATIC
+
+
+class ReadingItem(BaseModel):
+    title: str
+    why: str
+    reference: CodeReference
+    component: str | None = None
+
+
 class ArchitectureGraph(BaseModel):
     """A repository's architecture, every part tied to evidence."""
 
@@ -465,6 +597,13 @@ class ArchitectureGraph(BaseModel):
     learning_path: list[LearningStep] = Field(default_factory=list)
     walkthroughs: list[Walkthrough] = Field(default_factory=list)
 
+    # -- the runtime architecture, from verified code (schema 4) --------------
+    abstractions: list[KeyAbstraction] = Field(default_factory=list)
+    relations: list[CodeRelation] = Field(default_factory=list)
+    runtime: RuntimeModel = Field(default_factory=RuntimeModel)
+    flows: list[Flow] = Field(default_factory=list)
+    reading_path: list[ReadingItem] = Field(default_factory=list)
+
     @model_validator(mode="after")
     def _references_resolve(self) -> ArchitectureGraph:
         known = {node.id for node in self.nodes}
@@ -481,6 +620,15 @@ class ArchitectureGraph(BaseModel):
             missing = set(flow.node_ids) - known
             if missing:
                 raise ValueError(f"flow {flow.name!r} names unknown node(s) {sorted(missing)}")
+        components = {c.id for c in self.runtime.components}
+        for link in self.runtime.links:
+            missing = {link.source, link.target} - components
+            if missing:
+                raise ValueError(f"runtime link names unknown component(s) {sorted(missing)}")
+        for flow in self.flows:
+            missing = {step.component for step in flow.steps} - components
+            if missing:
+                raise ValueError(f"flow {flow.name!r} names unknown component(s) {sorted(missing)}")
         return self
 
     # -- building -------------------------------------------------------------

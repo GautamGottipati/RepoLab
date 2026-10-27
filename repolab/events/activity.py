@@ -55,7 +55,7 @@ PHASES: tuple[ActivityPhase, ...] = (
     ),
     ActivityPhase(
         key="finding_entrypoints",
-        label="Finding Spark entry points",
+        label="Finding entry points",
         tools=frozenset({"detect_entrypoints", "detect_services", "detect_surfaces"}),
     ),
     ActivityPhase(
@@ -116,9 +116,12 @@ class ActivityReporter:
     tracker and the full activity feed from the same stream.
     """
 
-    def __init__(self, emitter: EventEmitter) -> None:
+    def __init__(self, emitter: EventEmitter, sink: Any | None = None) -> None:
         self._emitter = emitter
         self._entered: list[str] = []
+        # Where the current phase is recorded as the task's live activity
+        # (repolab.events.liveness). Optional: without one, only events flow.
+        self._sink = sink
 
     @property
     def entered(self) -> list[str]:
@@ -142,6 +145,8 @@ class ActivityReporter:
             return False
 
         self._entered.append(key)
+        if self._sink is not None:
+            self._sink.set_activity("investigation", key)
         self._emitter.emit(
             EventType.AGENT_STATUS,
             phase.label if detail is None else f"{phase.label} — {detail}",

@@ -10,6 +10,10 @@
 
 import type {
   ApprovalResult,
+  ArtifactDetail,
+  ArtifactList,
+  ArtifactType,
+  SourceFile,
   ArchitectureFocus,
   ArchitectureView,
   ExperienceListing,
@@ -115,6 +119,14 @@ export const api = {
   // -- jobs -----------------------------------------------------------------
   submitRepository: (repoUrl: string) => post<JobCreated>("/jobs", { repo_url: repoUrl }),
   job: (jobId: string) => request<JobState>(`/jobs/${jobId}`),
+  artifacts: (jobId: string) => request<ArtifactList>(`/jobs/${jobId}/artifacts`),
+  artifact: (jobId: string, type: ArtifactType) =>
+    request<ArtifactDetail>(`/jobs/${jobId}/artifacts/${type}`),
+  /** Make sure an artifact is (being) generated. Idempotent: never duplicates work. */
+  requestArtifact: (jobId: string, type: ArtifactType, retry = false) =>
+    request<ArtifactDetail>(`/jobs/${jobId}/artifacts/${type}${retry ? "?retry=true" : ""}`, {
+      method: "POST",
+    }),
   manifest: (jobId: string) => request<RepoManifest>(`/jobs/${jobId}/manifest`),
   architecture: (jobId: string) => request<ArchitectureView>(`/jobs/${jobId}/architecture`),
   /** Measurements from real runs, placed on components. Empty until something ran. */
@@ -197,6 +209,16 @@ export const api = {
     post<ExperienceSessionView["state"]["transcript"][number]>(`/experience-sessions/${sessionId}/minilab`, { command }),
   stopExperience: (sessionId: string) =>
     request<{ id: string; status: string }>(`/experience-sessions/${sessionId}`, { method: "DELETE" }),
+  /** A file at the commit this job investigated, from RepoLab's own copy. */
+  source: (jobId: string, path: string, around?: number | null) =>
+    request<SourceFile>(
+      `/jobs/${jobId}/source?${new URLSearchParams({ path, ...(around ? { around: String(around) } : {}) })}`,
+    ),
+  /** A file at an explicit commit (a citation made at another commit). */
+  sourceAt: (repoUrl: string, commitSha: string, path: string, around?: number | null) =>
+    request<SourceFile>(
+      `/sources?${new URLSearchParams({ repo_url: repoUrl, commit_sha: commitSha, path, ...(around ? { around: String(around) } : {}) })}`,
+    ),
   /** The SSE URL for an events path the API returned, e.g. `/jobs/{id}/events`. */
   eventsPath: (path: string) => `${API}${path}`,
   experiment: (id: string) => request<ExperimentState>(`/experiments/${id}`),

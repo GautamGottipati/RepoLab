@@ -198,6 +198,12 @@ def apply_synthesis(
     graph: ArchitectureGraph, synthesis: ArchitectureSynthesis, index: SourceIndex
 ) -> ArchitectureGraph:
     """Merge what the model proposed, keeping only what the evidence allows."""
+    shown = {
+        f"{ref.path}:{ref.start_line}": ref
+        for node in graph.nodes
+        for ref in node.source_references[:3]
+        if ref.start_line is not None
+    }
     dropped: dict[str, int] = {}
 
     def drop(reason: str) -> None:
@@ -230,11 +236,11 @@ def apply_synthesis(
         except ValueError:
             drop("unknown relationship type")
             continue
-        path, _, line_text = proposal.evidence.strip().rpartition(":")
-        line = int(line_text) if line_text.isdigit() else None
-        path = path or proposal.evidence.strip()
-        if not index.line_exists(path, line):
-            drop("relationship citing a file or line that does not exist")
+        # The model may only copy a citation RepoLab showed it; a line number
+        # of its own is never taken as evidence.
+        cited = shown.get(proposal.evidence.strip().strip("`'\""))
+        if cited is None:
+            drop("relationship citing a line RepoLab did not show")
             continue
         if graph.add_edge(
             ArchitectureEdge(
@@ -243,7 +249,7 @@ def apply_synthesis(
                 type=edge_type,
                 description=proposal.description[:200] or None,
                 provenance=Provenance.INFERRED,
-                evidence=[index.ref(path, line)],
+                evidence=[cited],
                 confidence=0.55,
             )
         ):

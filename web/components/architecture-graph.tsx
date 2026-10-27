@@ -53,6 +53,8 @@ export function ArchitectureGraph({
   onSelect,
   caption = defaultCaption,
   kind = (node) => CATEGORY_LABEL[node.category],
+  edgeLabel,
+  columnGap = COLUMN_GAP,
 }: {
   graph: Graph;
   selected: string | null;
@@ -63,12 +65,16 @@ export function ArchitectureGraph({
   caption?: (node: ArchitectureNode) => string;
   /** What a box is, for screen readers. */
   kind?: (node: ArchitectureNode) => string;
+  /** What passes along an edge, drawn on it ("tasks", "HTTP request"). */
+  edgeLabel?: (edge: Graph["edges"][number]) => string | null;
+  /** Wider gaps leave room for edge labels. */
+  columnGap?: number;
 }) {
   const placements = layout(graph);
   const emphasised = flowEdges(graph);
   const columns = Math.max(1, ...[...placements.values()].map((p) => p.rank + 1));
   const rows = Math.max(1, ...[...placements.values()].map((p) => p.row + 1));
-  const width = columns * BOX_WIDTH + (columns - 1) * COLUMN_GAP;
+  const width = columns * BOX_WIDTH + (columns - 1) * columnGap;
   const height = rows * BOX_HEIGHT + (rows - 1) * ROW_GAP;
   // What the selection touches: everything else steps back.
   const connected = new Set<string>();
@@ -81,7 +87,7 @@ export function ArchitectureGraph({
   const dimmed = (id: string) => selected !== null && id !== selected && !connected.has(id);
   const at = (id: string) => {
     const p = placements.get(id);
-    return p ? { x: p.rank * (BOX_WIDTH + COLUMN_GAP), y: p.row * (BOX_HEIGHT + ROW_GAP) } : null;
+    return p ? { x: p.rank * (BOX_WIDTH + columnGap), y: p.row * (BOX_HEIGHT + ROW_GAP) } : null;
   };
 
   return (
@@ -144,6 +150,35 @@ export function ArchitectureGraph({
               <title>{edge.type.replace(/_/g, " ")}</title>
             </path>
           );
+        })}
+
+        {edgeLabel &&
+          graph.edges.map((edge, index) => {
+            const label = edgeLabel(edge);
+            const from = at(edge.source);
+            const to = at(edge.target);
+            if (!label || !from || !to) return null;
+            const forward = to.x > from.x;
+            // Back-edges run along the boxes; a label there would sit on others.
+            if (!forward) return null;
+            const x = (from.x + BOX_WIDTH + to.x) / 2;
+            const y = (from.y + to.y) / 2 + BOX_HEIGHT / 2 - 5;
+            const faded = selected !== null && selected !== edge.source && selected !== edge.target;
+            return (
+              <text
+                key={`label-${edge.source}-${edge.target}-${index}`}
+                x={x}
+                y={y}
+                textAnchor="middle"
+                data-testid="edge-label"
+                className={`fill-fg-secondary text-[10px] transition-opacity duration-150 ${faded ? "opacity-25" : ""}`}
+                stroke="var(--canvas)"
+                strokeWidth={4}
+                style={{ paintOrder: "stroke" }}
+              >
+                {truncate(label, 22)}
+              </text>
+            );
         })}
 
         {graph.nodes.map((node) => {

@@ -63,6 +63,8 @@ from repolab.ingest.url import validate_repo_url
 from repolab.questions import ExperimentBackend, Route, Triage, triage
 from repolab.questions.answer import AnswerAgent
 from repolab.questions.triage import cli_artifact
+from repolab.sources import CloneSnapshot
+from repolab.sources import capture as capture_sources
 
 log = structlog.get_logger(__name__)
 
@@ -241,12 +243,26 @@ async def _propose(
         step="clone",
         data={"repo": url.slug},
     )
-    with TemporaryClone(url, limits=DEFAULT_LIMITS) as clone:
+    # The investigated commit, so the answer reads the snapshot the architecture
+    # was built from rather than wherever the default branch has moved since.
+    investigated = ingestion.commit_sha if ingestion else None
+    with TemporaryClone(url, limits=DEFAULT_LIMITS, commit=investigated) as clone:
+        pinned = investigated is None or clone.commit_sha == investigated
         context.emitter.emit(
             EventType.STEP_DONE,
-            f"cloned at {clone.commit_sha[:12]}",
+            f"cloned at {clone.commit_sha[:12]}"
+            + (
+                ""
+                if pinned
+                else f" -- the investigated commit {investigated[:12]} is no longer served, "
+                "so citations come from this newer commit"
+            ),
             step="clone",
-            data={"commit_sha": clone.commit_sha},
+            data={
+                "commit_sha": clone.commit_sha,
+                "investigated_commit": investigated,
+                "pinned": pinned,
+            },
         )
 
         if decision.route is Route.ANSWER:
@@ -270,6 +286,16 @@ async def _propose(
             )
             with context.factory() as session:
                 save_answer(session, experiment_id, result, commit_sha=clone.commit_sha)
+                # Keep the cited files at the commit the answer read, so each
+                # citation opens to exactly what the answer saw.
+                capture_sources(
+                    session,
+                    repo_url=url.normalized,
+                    commit_sha=clone.commit_sha,
+                    snapshot=CloneSnapshot(root=Path(clone.path), commit_sha=clone.commit_sha),
+                    paths=[ref.path for ref in result.evidence.code_references],
+                    by="ask",
+                )
                 session.commit()
             context.emitter.emit(
                 EventType.STEP_DONE,
@@ -476,7 +502,7 @@ async def _run(
         )
         return experiment
 
-    with TemporaryClone(url, limits=DEFAULT_LIMITS) as clone:
+    with TemporaryClone(url, limits=DEFAULT_LIMITS, commit=experiment.commit_sha) as clone:
         if clone.commit_sha != experiment.commit_sha:
             # Measuring a different commit than the one approved would make the
             # result unattributable, so this stops rather than adapting.

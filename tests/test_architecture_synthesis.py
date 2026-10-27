@@ -141,7 +141,7 @@ class TestWhatIsRefused:
         assert graph.node(ids["Read Orders"]).description is None  # type: ignore[union-attr]
         assert graph.dropped["invented measurement"] == 2
         assert graph.dropped["unknown component"] == 1
-        assert graph.dropped["relationship citing a file or line that does not exist"] == 1
+        assert graph.dropped["relationship citing a line RepoLab did not show"] == 1
         assert graph.dropped["relationship to an unknown component"] == 1
         assert graph.dropped["unknown relationship type"] == 1
         assert graph.dropped["flow through unknown components"] == 1

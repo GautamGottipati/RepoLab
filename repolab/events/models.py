@@ -57,6 +57,16 @@ class EventType(StrEnum):
     UPGRADE_AVAILABLE = "upgrade_available"
     UPGRADE_APPLIED = "upgrade_applied"
 
+    # Analysis artifacts. Each carries ``{artifact_type, status, version,
+    # cache_hit}`` -- never the payload, which is fetched by type.
+    ARTIFACT_QUEUED = "artifact_queued"
+    ARTIFACT_STARTED = "artifact_started"
+    ARTIFACT_VERIFYING = "artifact_verifying"
+    ARTIFACT_READY = "artifact_ready"
+    ARTIFACT_UPDATED = "artifact_updated"
+    ARTIFACT_FAILED = "artifact_failed"
+    ARTIFACT_BLOCKED = "artifact_blocked"
+
 
 class JobStatus(StrEnum):
     """Where a job is in its lifecycle."""

@@ -34,12 +34,24 @@ import {
   SubsystemCards,
   Walkthroughs,
 } from "./architecture-overview";
-import { ActionLink, Drawer, Empty, EmptyState, FileRefs, Note, Panel } from "./ui";
+import {
+  CoreIdeas,
+  FlowsView,
+  ModulesView,
+  ReadingPath,
+  RepositoryMap,
+  RuntimeDiagram,
+  RuntimeInspector,
+  hasRuntime,
+} from "./architecture-runtime";
+import { ActionLink, Button, Drawer, Empty, EmptyState, FileRefs, Note, Panel, Section } from "./ui";
+import { shortHash } from "@/lib/format";
 import {
   CATEGORY_LABEL,
   VIEW_LABEL,
   conceptGraph,
   hasLevels,
+  flowWalkthroughs,
   overviewWalkthroughs,
   subjectKind,
   subsystemGraph,
@@ -54,6 +66,7 @@ import type {
   RepoManifest,
   RuntimeOverlay,
   Subsystem,
+  ArtifactStatus,
 } from "@/lib/types";
 
 type Props = {
@@ -64,6 +77,9 @@ type Props = {
   initialSubsystem?: string | null;
   initialSelection?: string | null;
   initialPerspective?: string | null;
+  /** Status of the on-demand pass that names the runtime components. */
+  naming?: ArtifactStatus | null;
+  onRetryNaming?: () => void;
 };
 
 /**
@@ -72,10 +88,11 @@ type Props = {
  */
 const PERSPECTIVES = [
   { id: "overview", label: "Overview" },
-  { id: "components", label: "Core components" },
-  { id: "flows", label: "Execution flow" },
+  { id: "runtime", label: "Runtime" },
+  { id: "flows", label: "Flows" },
+  { id: "modules", label: "Modules" },
+  { id: "source", label: "Source map" },
   { id: "learning", label: "Learning path" },
-  { id: "source", label: "Source code" },
   { id: "experiments", label: "Related experiments" },
 ] as const;
 type Perspective = (typeof PERSPECTIVES)[number]["id"];
@@ -98,6 +115,36 @@ function useWide(query = "(min-width: 1024px)"): boolean {
   return wide;
 }
 
+/**
+ * While Nemotron names the runtime components, they keep their type names --
+ * which are real and verified -- and say so. Nothing unverified is shown.
+ */
+function NamingNote({ status, onRetry }: { status: ArtifactStatus | null; onRetry?: () => void }) {
+  if (status === "queued" || status === "generating" || status === "verifying") {
+    return (
+      <p role="status" data-testid="runtime-naming" data-status={status} className="flex items-center gap-2 text-sm text-fg-secondary">
+        <span aria-hidden className="size-1.5 rounded-full bg-exp motion-safe:animate-pulse" />
+        {status === "verifying"
+          ? "Checking the new names against the source…"
+          : "Naming the runtime components… Until then they keep their type names."}
+      </p>
+    );
+  }
+  if (status === "failed") {
+    return (
+      <p role="status" data-testid="runtime-naming" data-status={status} className="flex flex-wrap items-center gap-3 text-sm text-fg-secondary">
+        Components keep their type names: RepoLab couldn&apos;t name them.
+        {onRetry && (
+          <Button size="sm" onClick={onRetry} data-testid="runtime-naming-retry">
+            Retry
+          </Button>
+        )}
+      </p>
+    );
+  }
+  return null;
+}
+
 export function ArchitectureExperience(props: Props) {
   return hasLevels(props.view.graph) ? <GuidedArchitecture {...props} /> : <LegacyArchitecture {...props} />;
 }
@@ -114,6 +161,8 @@ function GuidedArchitecture({
   initialSubsystem = null,
   initialSelection = null,
   initialPerspective = null,
+  naming = null,
+  onRetryNaming,
 }: Props) {
   const graph = view.graph;
   const understanding = graph.understanding!;
@@ -127,6 +176,11 @@ function GuidedArchitecture({
   const [perspective, setPerspective] = useState<Perspective>(
     isPerspective(initialPerspective) ? initialPerspective : "overview",
   );
+  const runtimeIds = new Set((graph.runtime?.components ?? []).map((c) => c.id));
+  const [runtimeSelected, setRuntimeSelected] = useState<string | null>(
+    initialSelection && runtimeIds.has(initialSelection) ? initialSelection : null,
+  );
+  const [flowId, setFlowId] = useState<string | null>(null);
   const wide = useWide();
 
   useEffect(() => {
@@ -135,7 +189,7 @@ function GuidedArchitecture({
       const url = new URL(window.location.href);
       for (const [key, value] of [
         ["subsystem", subsystemId],
-        ["node", selected],
+        ["node", selected ?? runtimeSelected],
         ["view", perspective === "overview" ? null : perspective],
       ] as const) {
         if (value) url.searchParams.set(key, value);
@@ -145,18 +199,29 @@ function GuidedArchitecture({
     } catch {
       // Not in a browser that allows it; the state still works in memory.
     }
-  }, [subsystemId, selected, perspective]);
+  }, [subsystemId, selected, runtimeSelected, perspective]);
 
   const explore = (id: string | null) => {
     setSubsystemId(id);
     setSelected(null);
-    setPerspective(id ? "components" : "overview");
+    setPerspective(id ? "modules" : "overview");
+  };
+  const selectRuntime = (id: string) => {
+    setSelected(null);
+    setRuntimeSelected(id);
+  };
+  const showFlow = (id: string) => {
+    setFlowId(id);
+    setSubsystemId(null);
+    setPerspective("flows");
   };
   const look = (next: Perspective) => {
     setPerspective(next);
     setSubsystemId(null);
   };
   const select = (id: string) => {
+    if (runtimeIds.has(id)) return selectRuntime(id);
+    setRuntimeSelected(null);
     const kind = subjectKind(graph, id);
     if (kind === "subsystem") return explore(id);
     if (kind === "node") {
@@ -184,7 +249,15 @@ function GuidedArchitecture({
     ? understanding.main_interaction_surfaces
     : manifest.interaction_surfaces.map((s) => s.type);
 
-  const inspector = selected ? (
+  const inspector = runtimeSelected ? (
+    <RuntimeInspector
+      jobId={jobId}
+      view={view}
+      componentId={runtimeSelected}
+      onSelect={selectRuntime}
+      onShowFlow={showFlow}
+    />
+  ) : selected ? (
     <Inspector
       jobId={jobId}
       view={view}
@@ -194,20 +267,26 @@ function GuidedArchitecture({
       onExplore={explore}
     />
   ) : null;
+  const runtime = hasRuntime(graph);
 
   const available: Record<Perspective, boolean> = {
     overview: true,
-    components: subsystems.length > 0,
-    flows: overviewWalkthroughs(graph).length > 0 || (graph.walkthroughs ?? []).length > 0,
+    runtime,
+    flows:
+      (graph.flows ?? []).length > 0 ||
+      overviewWalkthroughs(graph).length > 0 ||
+      (graph.walkthroughs ?? []).length > 0,
+    modules: subsystems.length > 0,
     learning: (graph.learning_path ?? []).length > 0,
     source:
+      (graph.reading_path ?? []).length > 0 ||
       subsystems.some((s) => s.starting_points.length > 0) ||
       graph.important_files.length > 0 ||
       manifest.concepts.length > 0,
     experiments: true,
   };
   const experiments = Object.entries(view.node_actions).filter(([, a]) => a.experiment.available && a.experiment.question);
-  const active: Perspective = subsystem ? "components" : perspective;
+  const active: Perspective = subsystem ? "modules" : perspective;
 
   const content: ReactNode = subsystem ? (
     <SubsystemView
@@ -230,24 +309,54 @@ function GuidedArchitecture({
         onExplore={explore}
         onSelect={select}
       />
+      {runtime && (
+        <Panel
+          title="Core ideas"
+          subtitle="The parts the rest of the code is built around, found in the source and ranked by how much of it uses them. Click one."
+        >
+          <div className="flex flex-col gap-6">
+            <CoreIdeas graph={graph} selected={runtimeSelected} onSelect={selectRuntime} />
+            <RuntimeDiagram graph={graph} selected={runtimeSelected} onSelect={selectRuntime} />
+            {(graph.flows ?? []).length > 0 && (
+              <div className="flex flex-wrap items-center gap-2 text-sm">
+                <span className="text-fg-secondary">Follow a flow:</span>
+                {graph.flows!.slice(0, 3).map((flow) => (
+                  <button
+                    key={flow.id}
+                    type="button"
+                    onClick={() => showFlow(flow.id)}
+                    className="rounded-full border border-arch-line px-3 py-1 text-xs text-arch-fg hover:bg-arch-soft"
+                  >
+                    {flow.name}
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
+        </Panel>
+      )}
       <SystemModelPanel graph={graph} selected={selected} measured={grouped} onSelect={select} />
       {subsystems.length > 0 && <SubsystemCards subsystems={subsystems} measured={grouped} onExplore={explore} />}
       <Walkthroughs walkthroughs={overviewWalkthroughs(graph)} onSelect={select} />
       <AnalysisDetails graph={graph} overlay={overlay} />
     </>
-  ) : perspective === "components" ? (
-    subsystems.length > 0 ? (
-      <SubsystemCards subsystems={subsystems} measured={grouped} onExplore={explore} />
-    ) : (
-      <EmptyState title="No major parts were found">
-        RepoLab could not tie this repository&apos;s structure to separate parts, so it shows none rather than guess.
-      </EmptyState>
-    )
+  ) : perspective === "runtime" ? (
+    <Section title="Runtime" description="The running system's parts and what passes between them.">
+      <div className="flex flex-col gap-6">
+        <NamingNote status={naming} onRetry={onRetryNaming} />
+        <RuntimeDiagram graph={graph} selected={runtimeSelected} onSelect={selectRuntime} />
+        <CoreIdeas graph={graph} selected={runtimeSelected} onSelect={selectRuntime} />
+      </div>
+    </Section>
+  ) : perspective === "modules" ? (
+    <ModulesView graph={graph} onExplore={explore} />
   ) : perspective === "flows" ? (
-    <Walkthroughs
-      walkthroughs={[...overviewWalkthroughs(graph), ...(graph.walkthroughs ?? []).filter((w) => w.level !== "system")]}
-      onSelect={select}
-    />
+    <>
+      {(graph.flows ?? []).length > 0 && (
+        <FlowsView graph={graph} flowId={flowId} onSelectFlow={setFlowId} onSelectComponent={selectRuntime} />
+      )}
+      <Walkthroughs walkthroughs={flowWalkthroughs(graph)} onSelect={select} />
+    </>
   ) : perspective === "learning" ? (
     <LearningPath
       jobId={jobId}
@@ -257,6 +366,8 @@ function GuidedArchitecture({
     />
   ) : perspective === "source" ? (
     <>
+      <ReadingPath graph={graph} onSelect={selectRuntime} />
+      <RepositoryMap graph={graph} onExplore={explore} onSelect={selectRuntime} />
       {subsystems.some((s) => s.starting_points.length > 0) && (
         <StartingPoints
           repoUrl={view.repo_url}
@@ -346,6 +457,13 @@ function GuidedArchitecture({
 
       <div className={inspector && wide ? "grid min-w-0 gap-6 xl:grid-cols-[minmax(0,1fr)_22rem]" : "min-w-0"}>
         <div className="flex min-w-0 flex-col gap-6">
+          <p className="text-meta text-fg-secondary" data-testid="analyzed-commit">
+            Architecture analyzed at commit{" "}
+            <span className="font-mono text-fg" title={view.commit_sha}>
+              {shortHash(view.commit_sha)}
+            </span>
+            . Every source link opens this exact version.
+          </p>
           <Breadcrumb
             name={understanding.name}
             subsystem={subsystem}
@@ -366,7 +484,10 @@ function GuidedArchitecture({
                 <p className="text-xs font-semibold uppercase tracking-wider text-arch-fg">Details</p>
                 <button
                   type="button"
-                  onClick={() => setSelected(null)}
+                  onClick={() => {
+                    setSelected(null);
+                    setRuntimeSelected(null);
+                  }}
                   className="rounded-md px-2 py-1 text-xs text-fg-secondary hover:bg-surface-hover hover:text-fg"
                 >
                   Close
@@ -379,7 +500,15 @@ function GuidedArchitecture({
       </div>
 
       {inspector && !wide && (
-        <Drawer open onClose={() => setSelected(null)} title={labelOf(graph, selected!)} data-testid="details-sheet">
+        <Drawer
+          open
+          onClose={() => {
+            setSelected(null);
+            setRuntimeSelected(null);
+          }}
+          title={runtimeSelected ? (graph.runtime?.components.find((c) => c.id === runtimeSelected)?.name ?? "Details") : labelOf(graph, selected!)}
+          data-testid="details-sheet"
+        >
           {inspector}
         </Drawer>
       )}

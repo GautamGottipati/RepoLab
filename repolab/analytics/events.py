@@ -31,6 +31,14 @@ class AnalyticsEventType(StrEnum):
     REPO_MANIFEST_CREATED = "repo_manifest_created"
     REPO_READY = "repo_ready"
 
+    # Progressive analysis
+    FIRST_MEANINGFUL_CONTENT = "first_meaningful_content"
+    """The first artifact the Overview can render is ready (or reused)."""
+    ARTIFACT_READY = "artifact_ready"
+    ARTIFACT_FAILED = "artifact_failed"
+    ARTIFACT_REQUESTED = "artifact_requested"
+    """An on-demand artifact was asked for."""
+
     AGENT_STARTED = "agent_started"
     AGENT_COMPLETED = "agent_completed"
     AGENT_FAILED = "agent_failed"

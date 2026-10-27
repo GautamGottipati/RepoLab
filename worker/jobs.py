@@ -11,7 +11,19 @@ from rq import Queue
 
 from repolab.config import Settings, get_settings
 
+#: The original single queue. Still listened to, so jobs enqueued before the
+#: split are not stranded.
 QUEUE_NAME = "repolab"
+
+#: Work is split by who is waiting for it, so a two-hour build never delays a
+#: new investigation. Workers listen to all of them, in this order.
+INTERACTIVE = "repolab-interactive"
+"""A user is waiting: investigations, on-demand artifacts, Ask, runs."""
+DEFAULT = "repolab-default"
+"""Background work that improves what the user already sees."""
+BACKGROUND = "repolab-background"
+"""Long work: builds, image pulls, experiment variants."""
+QUEUE_ORDER = (INTERACTIVE, DEFAULT, BACKGROUND, QUEUE_NAME)
 
 #: Generous: a large repository clone plus investigation can take minutes.
 JOB_TIMEOUT_SECONDS = 1800
@@ -27,14 +39,14 @@ EXPERIMENT_TIMEOUT_SECONDS = 3600
 BUILD_LADDER_TIMEOUT_SECONDS = 5400
 
 
-def build_queue(settings: Settings | None = None) -> Queue:
+def build_queue(settings: Settings | None = None, name: str = DEFAULT) -> Queue:
     resolved = settings or get_settings()
-    return Queue(QUEUE_NAME, connection=Redis.from_url(resolved.redis_url))
+    return Queue(name, connection=Redis.from_url(resolved.redis_url))
 
 
 def enqueue_investigation(job_id: str, url: str, *, queue: Queue | None = None) -> str:
     """Queue an investigation and return the RQ job id."""
-    target = queue or build_queue()
+    target = queue or build_queue(name=INTERACTIVE)
     enqueued = target.enqueue(
         "worker.tasks.investigate_repository",
         job_id,
@@ -56,7 +68,7 @@ def enqueue_experiment_proposal(
     queue: Queue | None = None,
 ) -> str:
     """Queue the design of an experiment. Stops at the approval gate."""
-    target = queue or build_queue()
+    target = queue or build_queue(name=INTERACTIVE)
     enqueued = target.enqueue(
         "worker.experiment_tasks.propose_experiment",
         job_id,
@@ -83,7 +95,7 @@ def enqueue_experiment_run(
     Enqueued only by an approval, which is what keeps the gate meaningful: there
     is no path from proposing to executing that does not pass through it.
     """
-    target = queue or build_queue()
+    target = queue or build_queue(name=BACKGROUND)
     enqueued = target.enqueue(
         "worker.experiment_tasks.run_experiment",
         job_id,
@@ -104,7 +116,7 @@ def enqueue_spark_run(
     queue: Queue | None = None,
 ) -> str:
     """Queue a Spark pipeline run for the playground."""
-    target = queue or build_queue()
+    target = queue or build_queue(name=INTERACTIVE)
     enqueued = target.enqueue(
         "worker.spark_tasks.run_spark_pipeline",
         job_id,
@@ -125,7 +137,7 @@ def enqueue_environment_resolution(
     queue: Queue | None = None,
 ) -> str:
     """Queue a full ladder resolution: cache, source build, release, partial, Mini Lab."""
-    target = queue or build_queue()
+    target = queue or build_queue(name=BACKGROUND)
     enqueued = target.enqueue(
         "worker.environment_tasks.resolve_environment",
         job_id,
@@ -146,7 +158,7 @@ def enqueue_runtime_start(
     job_id: str, runtime_id: str, url: str, *, queue: Queue | None = None
 ) -> str:
     """Queue a launch of a repository's planned services. Only a person starts one."""
-    target = queue or build_queue()
+    target = queue or build_queue(name=BACKGROUND)
     enqueued = target.enqueue(
         "worker.runtime_tasks.start_runtime",
         job_id,
@@ -159,7 +171,7 @@ def enqueue_runtime_start(
 
 
 def enqueue_runtime_stop(runtime_id: str, *, queue: Queue | None = None) -> str:
-    target = queue or build_queue()
+    target = queue or build_queue(name=INTERACTIVE)
     enqueued = target.enqueue(
         "worker.runtime_tasks.stop_runtime", runtime_id, job_timeout=600, result_ttl=600
     )
@@ -168,11 +180,24 @@ def enqueue_runtime_stop(runtime_id: str, *, queue: Queue | None = None) -> str:
 
 def enqueue_lesson_generation(job_id: str, url: str, *, queue: Queue | None = None) -> str:
     """Queue lesson generation for a repository whose environment is ready."""
-    target = queue or build_queue()
+    target = queue or build_queue(name=DEFAULT)
     enqueued = target.enqueue(
         "worker.lesson_tasks.generate_lesson",
         job_id,
         url,
+        job_timeout=JOB_TIMEOUT_SECONDS,
+        result_ttl=3600,
+    )
+    return str(enqueued.id)
+
+
+def enqueue_artifact(job_id: str, artifact_type: str, *, queue: Queue | None = None) -> str:
+    """Queue the generation of one on-demand artifact for a job."""
+    target = queue or build_queue(name=INTERACTIVE)
+    enqueued = target.enqueue(
+        "worker.artifact_tasks.generate_artifact",
+        job_id,
+        artifact_type,
         job_timeout=JOB_TIMEOUT_SECONDS,
         result_ttl=3600,
     )

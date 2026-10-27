@@ -24,7 +24,7 @@ from repolab.events import (
 #: The labels the Phase 8 specification names, in order.
 REQUIRED_LABELS = [
     "Inspecting repository",
-    "Finding Spark entry points",
+    "Finding entry points",
     "Understanding data flow",
     "Preparing environment",
 ]

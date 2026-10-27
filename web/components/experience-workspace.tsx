@@ -18,6 +18,8 @@ import Link from "next/link";
 import { useEffect, useMemo, useState, type ReactNode } from "react";
 
 import { AnswerView } from "./answer-view";
+import { Diagnostics, useDebug } from "./diagnostics";
+import { WorkingStatus } from "./working-status";
 import {
   ActionButton,
   ActionLink,
@@ -33,7 +35,7 @@ import {
 } from "./ui";
 import { api, ApiError } from "@/lib/api";
 import { useEventStream } from "@/lib/events";
-import type { ExperienceRun, ExperienceSessionView, Reality, StarterAction } from "@/lib/types";
+import type { ExperienceRun, ExperienceSessionView, JobEvent, Reality, StarterAction } from "@/lib/types";
 
 export const REALITY: Record<Reality, { label: string; hint: string; tone: "run" | "exp" | "neutral" }> = {
   real_repository: { label: "REAL REPOSITORY", hint: "Runs code built from the investigated commit.", tone: "run" },
@@ -71,12 +73,15 @@ export function ExperienceWorkspace({
   repoUrl,
   commitSha,
   onClose,
+  onSession,
 }: {
   sessionId: string;
   jobId: string;
   repoUrl: string;
   commitSha: string;
   onClose?: () => void;
+  /** Switch to another session, e.g. one started again after an interruption. */
+  onSession?: (id: string) => void;
 }) {
   const [view, setView] = useState<ExperienceSessionView | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -122,8 +127,28 @@ export function ExperienceWorkspace({
     };
   }, [seen, sessionId, finished]);
 
+  // While preparing, re-read the session on a slow clock too: a long build can
+  // go minutes without an event, and the heartbeat-based health and current
+  // step must stay current through it.
+  const preparing = view?.status === "preparing";
+  useEffect(() => {
+    if (!preparing) return;
+    const timer = setInterval(() => {
+      void api.experienceSession(sessionId).then(setView, () => undefined);
+    }, 5000);
+    return () => clearInterval(timer);
+  }, [preparing, sessionId]);
+
   if (error) return <p className="text-sm text-danger-fg">{error}</p>;
   if (!view) return <p className="text-sm text-fg-secondary">Loading the experience…</p>;
+
+  // The backend retires an interrupted preparation and starts a fresh one.
+  const restart = () => {
+    void api.startExperience(jobId, view.experience_id, view.strategy).then(
+      (next) => (onSession ? onSession(next.id) : setView(next)),
+      (cause: unknown) => setError(cause instanceof ApiError ? cause.message : String(cause)),
+    );
+  };
 
   const experience = view.experience;
   const latest = [...events].reverse().find((e) => e.message)?.message ?? null;
@@ -159,7 +184,9 @@ export function ExperienceWorkspace({
         )}
       </header>
 
-      {view.status === "preparing" && <Preparing view={view} latest={latest} />}
+      {view.status === "preparing" && (
+        <Preparing view={view} latest={latest} events={events} onRestart={restart} />
+      )}
       {view.status === "failed" && <PreparationFailed view={view} jobId={jobId} />}
 
       {view.status === "ready" && view.adapter === "minilab" && <MiniLabConsole view={view} onUpdate={setView} />}
@@ -191,22 +218,47 @@ function stepsOf(view: ExperienceSessionView): ProgressStep[] {
   }));
 }
 
-function Preparing({ view, latest }: { view: ExperienceSessionView; latest: string | null }) {
+function Preparing({
+  view,
+  latest,
+  events,
+  onRestart,
+}: {
+  view: ExperienceSessionView;
+  latest: string | null;
+  events: JobEvent[];
+  onRestart: () => void;
+}) {
   return (
-    <div className="rounded-lg border border-line bg-surface p-5" data-testid="experience-preparing">
-      <p className="text-card font-semibold text-fg">Preparing {view.experience?.title ?? "the experience"}…</p>
-      <p className="mt-1 text-sm text-fg-secondary">
-        RepoLab is setting up an isolated environment. Each step below is reported as it happens.
-      </p>
-      <div className="mt-4">
-        <ProgressSteps steps={stepsOf(view)} label="Preparation" data-testid="preparation-steps" />
-      </div>
-      {latest && (
-        <p className="mt-3 truncate border-t border-line pt-3 font-mono text-xs text-fg-muted" data-testid="experience-latest">
-          {latest}
+    <div className="flex flex-col gap-4 rounded-lg border border-line bg-surface p-5" data-testid="experience-preparing">
+      <div>
+        <p className="text-card font-semibold text-fg">Preparing {view.experience?.title ?? "the experience"}</p>
+        <p className="mt-1 text-sm text-fg-secondary">
+          RepoLab is setting up an isolated environment. Each step below is reported as it happens.
         </p>
-      )}
+      </div>
+      <WorkingStatus
+        activity={view.activity?.key}
+        stage={view.activity?.stage ?? "experience"}
+        startedAt={view.activity?.started_at}
+        health={view.health}
+        onRetry={onRestart}
+      />
+      <ProgressSteps steps={stepsOf(view)} label="Preparation" data-testid="preparation-steps" />
+      <Diagnostics events={events} health={view.health} activity={view.activity} />
+      {latest && <DebugLine>{latest}</DebugLine>}
     </div>
+  );
+}
+
+/** The raw last log line: for developers, behind the same switch as Diagnostics. */
+function DebugLine({ children }: { children: string }) {
+  const debug = useDebug();
+  if (!debug) return null;
+  return (
+    <p className="truncate border-t border-line pt-3 font-mono text-xs text-fg-muted" data-testid="experience-latest">
+      {children}
+    </p>
   );
 }
 

@@ -56,7 +56,7 @@ test.describe("P0 — the Spark experience, from the browser", () => {
     // vocabulary. Each must actually be announced; none is cosmetic.
     for (const label of [
       "Inspecting repository",
-      "Finding Spark entry points",
+      "Finding entry points",
       "Understanding data flow",
     ]) {
       await expect(activity.getByRole("listitem").filter({ hasText: label })).toHaveAttribute(

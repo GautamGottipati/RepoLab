@@ -234,3 +234,19 @@ def fail_abandoned_jobs(
 
     session.flush()
     return abandoned
+
+
+def set_commit(session: Session, job_id: str, commit_sha: str) -> None:
+    """Record which commit a job analyses, as soon as it is known."""
+    job = get_job(session, job_id)
+    if job is not None:
+        job.commit_sha = commit_sha
+        session.flush()
+
+
+def link_ingestion(session: Session, job_id: str, ingestion_id: int) -> None:
+    """Point a still-running job at its ingestion, so its screens can read it."""
+    job = get_job(session, job_id)
+    if job is not None:
+        job.ingestion_id = ingestion_id
+        session.flush()

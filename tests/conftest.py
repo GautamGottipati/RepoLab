@@ -33,6 +33,20 @@ def no_real_queue(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr("worker.jobs.build_queue", refuse)
 
 
+@pytest.fixture(autouse=True)
+def liveness_store(monkeypatch: pytest.MonkeyPatch):
+    """Heartbeats go to an in-memory store, never the developer's real Redis.
+
+    Shared by the worker side and the API side of one test, so a test can beat
+    as a worker and read the health the API reports.
+    """
+    from repolab.events.liveness import MemoryLivenessStore
+
+    store = MemoryLivenessStore()
+    monkeypatch.setattr("repolab.events.liveness.default_store", lambda: store)
+    return store
+
+
 @pytest.fixture
 def capture_logs() -> Iterator[list[dict[str, Any]]]:
     """Capture structlog events emitted during a test.

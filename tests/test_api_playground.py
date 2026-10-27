@@ -401,7 +401,7 @@ class TestGenericArchitecture:
         job_id = ingested_v2_job(db, tmp_path)
         body = client.get(f"/jobs/{job_id}/architecture").json()
         graph = body["graph"]
-        assert graph["schema_version"] == 3
+        assert graph["schema_version"] == 4
         assert graph["understanding"]["name"]
         ids = {c["id"] for c in graph["system_model"]["concepts"]}
         ids |= {s["id"] for s in graph["subsystems"]}

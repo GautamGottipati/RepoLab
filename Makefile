@@ -1,4 +1,4 @@
-.PHONY: install dev dev-api dev-worker dev-web test lint fmt up down check smoke \
+.PHONY: install dev dev-api dev-worker dev-web stop test lint fmt up down check smoke \
 	demo-check demo-prepare check-secrets \
 	db-upgrade db-downgrade db-revision ingest check-repos build run-spark-demo test-docker \
 	experiment e2e e2e-cassandra e2e-airflow e2e-metrics web-build web-lint build-ladder test-slow
@@ -15,22 +15,35 @@ up:
 down:
 	docker compose down
 
-dev: up
-	@echo "Starting api (:8000), worker and web (:3000). Ctrl-C stops all."
-	@trap 'kill 0' INT TERM; \
-	uv run uvicorn api.main:app --reload --port 8000 & \
+# The API waits at most this long for open connections on shutdown. Without a
+# limit, a browser tab's event stream (SSE) keeps it alive forever after Ctrl-C,
+# still holding :8000, and the next `make dev` fails with "Address already in use".
+API_SHUTDOWN_TIMEOUT := 3
+UVICORN := uv run uvicorn api.main:app --reload --port 8000 --timeout-graceful-shutdown $(API_SHUTDOWN_TIMEOUT)
+
+dev: up stop
+	@echo "Starting api (:8000), two workers and web (:3000). Ctrl-C stops all."
+	@trap 'trap "" INT TERM; echo; echo "Stopping..."; kill -TERM 0 2>/dev/null; sleep 4; $(MAKE) --no-print-directory stop' INT TERM; \
+	$(UVICORN) & \
+	OBJC_DISABLE_INITIALIZE_FORK_SAFETY=YES uv run python -m worker.main & \
 	OBJC_DISABLE_INITIALIZE_FORK_SAFETY=YES uv run python -m worker.main & \
 	(cd web && npm run dev) & \
 	wait
 
 dev-api: up
-	uv run uvicorn api.main:app --reload --port 8000
+	$(UVICORN)
 
 dev-worker: up
 	OBJC_DISABLE_INITIALIZE_FORK_SAFETY=YES uv run python -m worker.main
 
 dev-web:
 	cd web && npm run dev
+
+# Stop anything a previous `make dev` left running (a closed terminal, a hung
+# shutdown): the API, the workers and the web dev server. Asks politely first,
+# then forces whatever is still there after three seconds.
+stop:
+	@sh scripts/dev-stop.sh
 
 test:
 	uv run pytest

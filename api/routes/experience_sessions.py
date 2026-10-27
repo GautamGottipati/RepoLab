@@ -27,6 +27,8 @@ from api.deps import get_session
 from repolab.db.jobs import create_job, get_job
 from repolab.db.runtimes import latest_runtime
 from repolab.db.store import load_architecture, load_manifest
+from repolab.events import liveness, read_liveness, session_key, task_health
+from repolab.events.liveness import Activity, Health
 from repolab.experiences import sessions as store
 from repolab.experiences.adapters import DiscoveryContext
 from repolab.experiences.catalog import experiences_for
@@ -97,11 +99,31 @@ class SessionView(BaseModel):
     events_url: str | None
     state: store.SessionState
     experience: ExperienceDefinition | None = None
+    health: Health | None = None
+    """While preparing: ``waiting``, ``working`` or ``interrupted``, from the
+    preparing worker's heartbeat. ``None`` otherwise."""
+    activity: Activity | None = None
+    """While preparing: the step the worker is on (a machine key)."""
+
+
+def _liveness(session: Session, record: Any) -> tuple[Health | None, Activity | None]:
+    if record.status != store.PREPARING or not record.events_job_id:
+        return None, None
+    job = get_job(session, record.events_job_id)
+    if job is None:
+        return None, None
+    live = read_liveness(liveness.default_store(), session_key(record.id))
+    health = task_health(job.status, live, job.started_at or job.created_at)
+    return health, live.snapshot.activity if live.snapshot else None
 
 
 def _view(
-    record: Any, state: store.SessionState, experience: ExperienceDefinition | None = None
+    record: Any,
+    state: store.SessionState,
+    experience: ExperienceDefinition | None = None,
+    session: Session | None = None,
 ) -> SessionView:
+    health, activity = _liveness(session, record) if session is not None else (None, None)
     return SessionView(
         id=record.id,
         job_id=record.job_id,
@@ -113,6 +135,8 @@ def _view(
         events_url=f"/jobs/{record.events_job_id}/events" if record.events_job_id else None,
         state=state,
         experience=experience,
+        health=health,
+        activity=activity,
     )
 
 
@@ -156,7 +180,14 @@ def start(
         if existing.experience_id == experience_id and existing.strategy == option.strategy.value:
             loaded = store.load_session(session, existing.id)
             assert loaded is not None
-            return _view(*loaded, experience)
+            health, _ = _liveness(session, existing)
+            if health is not Health.INTERRUPTED:
+                return _view(*loaded, experience, session)
+            # Its worker stopped beating: retire it and prepare afresh, rather
+            # than hand back a preparation nobody is working on.
+            _, state = loaded
+            state.failure = "preparation was interrupted; it was started again"
+            store.save_state(session, existing.id, state, status=store.FAILED)
 
     events = create_job(session, manifest.repo_url, kind="experience")
     record = store.create_session(
@@ -174,7 +205,7 @@ def start(
     _enqueue("worker.experience_tasks.prepare_experience", events.id, record.id, timeout=4 * 3600)
     loaded = store.load_session(session, record.id)
     assert loaded is not None
-    return _view(*loaded, experience)
+    return _view(*loaded, experience, session)
 
 
 def _load(session: Session, session_id: str) -> tuple[Any, store.SessionState]:
@@ -188,7 +219,7 @@ def _load(session: Session, session_id: str) -> tuple[Any, store.SessionState]:
 def session_view(session_id: str, session: Annotated[Session, Depends(get_session)]) -> SessionView:
     record, state = _load(session, session_id)
     _, listing = _discover(session, record.job_id)
-    return _view(record, state, _find(listing, record.experience_id))
+    return _view(record, state, _find(listing, record.experience_id), session)
 
 
 class RunRequest(BaseModel):
@@ -288,8 +319,11 @@ def stop(session_id: str, session: Annotated[Session, Depends(get_session)]) -> 
 
 def _enqueue(task: str, *args: str, timeout: int) -> None:
     try:
-        from worker.jobs import build_queue
+        from worker.jobs import BACKGROUND, INTERACTIVE, build_queue
 
-        build_queue().enqueue(task, *args, job_timeout=timeout, result_ttl=3600)
+        # Preparation builds images and compiles; runs and explanations have a
+        # learner waiting on them.
+        name = BACKGROUND if task.endswith("prepare_experience") else INTERACTIVE
+        build_queue(name=name).enqueue(task, *args, job_timeout=timeout, result_ttl=3600)
     except Exception as exc:  # noqa: BLE001 - recorded; the rows survive
         log.warning("experience.enqueue_failed", task=task, error=str(exc))

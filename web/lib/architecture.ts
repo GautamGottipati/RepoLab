@@ -427,6 +427,20 @@ export function overviewWalkthroughs(graph: ArchitectureGraph): Walkthrough[] {
   return (graph.walkthroughs ?? []).filter((w) => !w.subsystem);
 }
 
+/**
+ * Every walkthrough, for the Flows perspective: the overview's first (the
+ * system walk included), then those inside a part. Each appears once -- a
+ * component walk that belongs to no part is in both sets.
+ */
+export function flowWalkthroughs(graph: ArchitectureGraph): Walkthrough[] {
+  const ordered = [
+    ...overviewWalkthroughs(graph),
+    ...(graph.walkthroughs ?? []).filter((w) => w.level !== "system"),
+  ];
+  const seen = new Set<string>();
+  return ordered.filter((w) => !seen.has(w.id) && (seen.add(w.id), true));
+}
+
 /** Where a subsystem lives, as a short friendly path: `sql/`, `connector/`. */
 export function subsystemPath(subsystem: Subsystem): string {
   const dirs = subsystem.paths.filter((p) => p && !p.split("/").pop()!.includes("."));

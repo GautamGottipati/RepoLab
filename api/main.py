@@ -16,6 +16,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 
 from api.routes import (
+    artifacts,
     cli,
     experience_sessions,
     experiments,
@@ -24,6 +25,7 @@ from api.routes import (
     metrics,
     runs,
     runtimes,
+    sources,
 )
 from api.runtime_proxy import RuntimeProxyMiddleware
 from repolab import __version__
@@ -87,6 +89,7 @@ app.add_middleware(
 app.add_middleware(RuntimeProxyMiddleware)
 
 app.include_router(jobs.router)
+app.include_router(artifacts.router)
 app.include_router(experiments.router)
 app.include_router(runs.router)
 app.include_router(cli.router)
@@ -94,6 +97,7 @@ app.include_router(lessons.router)
 app.include_router(metrics.router)
 app.include_router(runtimes.router)
 app.include_router(experience_sessions.router)
+app.include_router(sources.router)
 
 
 class Health(BaseModel):

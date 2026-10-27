@@ -7,18 +7,15 @@ mid-run, replay its history, and continue without a gap or a duplicate.
 from __future__ import annotations
 
 import json
-from datetime import UTC, datetime, timedelta
 
 import pytest
 
 from repolab.events import (
-    STALL_THRESHOLD_SECONDS,
     CollectingEmitter,
     EventType,
     JobEvent,
     JobStatus,
     NullEmitter,
-    detect_stall,
 )
 from repolab.events.models import MAX_MESSAGE_LENGTH
 
@@ -42,6 +39,14 @@ REQUIRED_EVENTS = {
     "experiment_variant_completed",
     "upgrade_available",
     "upgrade_applied",
+    # Progressive analysis: one event per artifact transition.
+    "artifact_queued",
+    "artifact_started",
+    "artifact_verifying",
+    "artifact_ready",
+    "artifact_updated",
+    "artifact_failed",
+    "artifact_blocked",
 }
 
 
@@ -139,69 +144,3 @@ class TestEmitters:
 
     def test_elapsed_time_is_tracked(self) -> None:
         assert CollectingEmitter().elapsed_seconds >= 0
-
-
-class TestStallDetection:
-    def test_no_events_yet_is_not_a_stall(self) -> None:
-        report = detect_stall(None)
-        assert report.stalled is False
-        assert "no events" in report.summary
-
-    def test_a_recent_event_is_not_a_stall(self) -> None:
-        recent = datetime.now(UTC) - timedelta(seconds=2)
-        report = detect_stall(recent)
-        assert report.stalled is False
-        assert "ago" in report.summary
-
-    def test_a_long_silence_is_a_stall(self) -> None:
-        stale = datetime.now(UTC) - timedelta(seconds=STALL_THRESHOLD_SECONDS + 10)
-        report = detect_stall(stale)
-        assert report.stalled is True
-        assert "no progress" in report.summary
-
-    def test_the_threshold_is_configurable(self) -> None:
-        moment = datetime.now(UTC) - timedelta(seconds=5)
-        assert detect_stall(moment, threshold_seconds=1).stalled is True
-        assert detect_stall(moment, threshold_seconds=60).stalled is False
-
-    def test_a_naive_timestamp_is_treated_as_utc(self) -> None:
-        """SQLite returns naive datetimes, so this must not raise."""
-        naive = datetime.now(UTC).replace(tzinfo=None)
-        assert detect_stall(naive).stalled is False
-
-
-class TestHeartbeat:
-    def test_a_beat_reports_elapsed_time(self) -> None:
-        from repolab.events import Heartbeat
-
-        emitter = CollectingEmitter()
-        Heartbeat(emitter, step="investigate").beat(12.5)
-
-        beat = emitter.of_type(EventType.HEARTBEAT)[0]
-        assert beat.data["elapsed_seconds"] == 12.5
-        assert "12s elapsed" in beat.message
-        assert beat.step == "investigate"
-
-    async def test_the_loop_beats_while_running(self) -> None:
-        import asyncio
-
-        from repolab.events import Heartbeat
-
-        emitter = CollectingEmitter()
-        async with Heartbeat(emitter, interval_seconds=0.01):
-            await asyncio.sleep(0.05)
-
-        assert emitter.of_type(EventType.HEARTBEAT)
-
-    async def test_the_loop_stops_on_exit(self) -> None:
-        import asyncio
-
-        from repolab.events import Heartbeat
-
-        emitter = CollectingEmitter()
-        async with Heartbeat(emitter, interval_seconds=0.01):
-            await asyncio.sleep(0.03)
-        before = len(emitter.events)
-
-        await asyncio.sleep(0.05)
-        assert len(emitter.events) == before

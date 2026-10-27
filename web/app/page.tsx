@@ -14,6 +14,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useCallback, useState } from "react";
 
+import { LandingIllustration } from "@/components/landing-illustration";
 import { ArchIcon, ArrowRightIcon, AskIcon, ExperimentIcon, RunIcon } from "@/components/ui";
 import { api, ApiError } from "@/lib/api";
 
@@ -29,11 +30,32 @@ const EXAMPLES: { url: string; label: string; what: string }[] = [
   { url: "https://github.com/apache/cassandra", label: "apache/cassandra", what: "A database with a CLI" },
 ];
 
-const VALUE: { title: string; detail: string; icon: React.ReactNode; tint: string }[] = [
-  { title: "Understand", detail: "What a real project is, in plain words", icon: <AskIcon size={16} />, tint: "text-violet-300" },
-  { title: "Explore", detail: "Its architecture, down to the source", icon: <ArchIcon size={16} />, tint: "text-cyan-300" },
-  { title: "Run", detail: "Interactive experiences on the real software", icon: <RunIcon size={16} />, tint: "text-emerald-300" },
-  { title: "Experiment", detail: "Test a question and measure the answer", icon: <ExperimentIcon size={16} />, tint: "text-amber-300" },
+/** The four things RepoLab does, each in the colour it keeps across the product. */
+const VALUE: { title: string; detail: string; icon: React.ReactNode; tile: string }[] = [
+  {
+    title: "Understand",
+    detail: "Real projects, in plain words",
+    icon: <AskIcon size={22} />,
+    tile: "border-violet-400/40 bg-violet-500/15 text-violet-300",
+  },
+  {
+    title: "Explore",
+    detail: "Architecture, down to the source",
+    icon: <ArchIcon size={22} />,
+    tile: "border-cyan-400/40 bg-cyan-500/15 text-cyan-300",
+  },
+  {
+    title: "Run",
+    detail: "Interactive experiences on the real software",
+    icon: <RunIcon size={22} />,
+    tile: "border-emerald-400/40 bg-emerald-500/15 text-emerald-300",
+  },
+  {
+    title: "Experiment",
+    detail: "Test a question and measure the answer",
+    icon: <ExperimentIcon size={22} />,
+    tile: "border-amber-400/40 bg-amber-500/15 text-amber-300",
+  },
 ];
 
 export default function LandingPage() {
@@ -60,7 +82,7 @@ export default function LandingPage() {
 
   return (
     <div className="flex min-h-screen flex-col bg-landing text-slate-100 [color-scheme:dark]">
-      <header className="mx-auto flex w-full max-w-5xl items-center justify-between px-4 py-5 sm:px-6">
+      <header className="mx-auto flex w-full max-w-6xl items-center justify-between px-4 py-5 sm:px-6">
         <span className="flex items-center gap-2 text-sm font-semibold tracking-tight">
           <span aria-hidden className="flex size-6 items-center justify-center rounded-md bg-indigo-500 text-xs text-white">
             R
@@ -72,10 +94,15 @@ export default function LandingPage() {
         </Link>
       </header>
 
-      <main className="mx-auto flex w-full max-w-5xl flex-1 flex-col justify-center gap-14 px-4 pb-16 pt-8 sm:px-6">
+      <main className="mx-auto flex w-full max-w-6xl flex-1 flex-col justify-center gap-14 px-4 pb-16 pt-8 sm:px-6">
+        <div className="grid items-center gap-10 lg:grid-cols-[minmax(0,1fr)_480px]">
         <section className="max-w-3xl">
           <h1 className="text-4xl font-semibold leading-tight tracking-tight text-white sm:text-5xl">
-            Turn any GitHub repository into an interactive learning experience.
+            Turn any GitHub repository into an{" "}
+            <span className="bg-gradient-to-r from-violet-400 via-fuchsia-300 to-indigo-400 bg-clip-text text-transparent">
+              interactive learning experience
+            </span>
+            .
           </h1>
           <p className="mt-5 max-w-2xl text-lg leading-relaxed text-slate-300">
             Analyze, run and explore real open-source projects — with explanations grounded in the code, live
@@ -138,16 +165,20 @@ export default function LandingPage() {
             </ul>
           </div>
         </section>
+        <LandingIllustration className="mx-auto hidden lg:block" />
+        </div>
 
         <section aria-label="What RepoLab does">
-          <ul className="grid gap-6 border-t border-slate-800 pt-10 sm:grid-cols-2 lg:grid-cols-4">
+          <ul className="grid gap-8 border-t border-slate-800 pt-10 sm:grid-cols-2 lg:grid-cols-4">
             {VALUE.map((item) => (
-              <li key={item.title}>
-                <p className={`flex items-center gap-2 text-sm font-semibold ${item.tint}`}>
+              <li key={item.title} className="flex flex-col gap-3">
+                <span className={`flex size-12 items-center justify-center rounded-xl border ${item.tile}`}>
                   {item.icon}
-                  {item.title}
-                </p>
-                <p className="mt-1.5 text-sm text-slate-400">{item.detail}</p>
+                </span>
+                <div>
+                  <p className="text-base font-semibold text-white">{item.title}</p>
+                  <p className="mt-0.5 text-sm text-slate-400">{item.detail}</p>
+                </div>
               </li>
             ))}
           </ul>

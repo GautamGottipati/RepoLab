@@ -31,6 +31,7 @@ import {
   sourceUrl,
   subsystemFor,
 } from "@/lib/architecture";
+import { SourceRef } from "./source-ref";
 import type {
   ArchitectureGraph,
   ArchitectureNode,
@@ -380,17 +381,10 @@ function SourceEvidence({ repoUrl, commit, node }: { repoUrl: string; commit: st
       <p className="text-xs font-medium">Source evidence</p>
       <ul className="mt-1 flex flex-col gap-2" data-testid="source-references">
         {node.source_references.map((ref, index) => {
-          const url = sourceUrl(repoUrl, commit, ref);
           const where = `${ref.path}${ref.start_line ? `:${ref.start_line}` : ""}`;
           return (
-            <li key={`${where}-${index}`} className="font-mono text-xs">
-              {url ? (
-                <a href={url} target="_blank" rel="noreferrer" className="underline underline-offset-2">
-                  {where}
-                </a>
-              ) : (
-                where
-              )}
+            <li key={`${where}-${index}`} className="flex flex-col gap-1 text-xs">
+              <SourceRef reference={ref} repoUrl={repoUrl} commitSha={commit} reason={`Evidence for ${node.label}.`} />
               {ref.excerpt && (
                 <pre className="mt-1 overflow-x-auto rounded bg-surface-subtle p-2 text-xs text-fg-secondary">
                   {ref.excerpt}

@@ -20,10 +20,12 @@ no narrative could be produced. It never writes one itself.
 
 from __future__ import annotations
 
+import re
 from pathlib import Path
 from typing import Any, Protocol
 
 import structlog
+from pydantic import BaseModel
 
 from repolab.agents.models import AgentLimits, AgentRun
 from repolab.agents.repository_tools import build_repository_tools
@@ -463,6 +465,7 @@ def verify_answer(
     must cite a retrieved URL. Inferences are labelled as the weaker kind and are
     not checked.
     """
+    pin_cited_lines(answer, evidence)
     paths = {ref.path for ref in evidence.code_references}
     urls = {doc.url for doc in evidence.documentation}
     unsupported: list[UnsupportedAnswerClaim] = []
@@ -515,6 +518,50 @@ def verify_answer(
 
 
 # ---------------------------------------------------------------------------
+
+
+_CITED_LINE = re.compile(r"^(?P<path>[\w./@+-]+\.[\w]+):(?P<line>\d+)(?:-\d+)?$")
+#: How far a cited line may sit from a range RepoLab read and still be "in" it.
+_NEAR = 3
+
+
+def pin_cited_lines(answer: GroundedAnswer, evidence: EvidenceBundle) -> None:
+    """Keep a ``path:line`` only where RepoLab itself read that line.
+
+    The model may name the file; a line number of its own is never trusted. A
+    cited line outside every range the investigation read is reduced to the
+    file, so the source viewer never highlights a line nothing verified.
+    """
+    ranges: dict[str, list[tuple[int, int]]] = {}
+    for ref in evidence.code_references:
+        if ref.start_line is not None:
+            ranges.setdefault(ref.path, []).append((ref.start_line, ref.end_line or ref.start_line))
+
+    def pin(value: str) -> str:
+        match = _CITED_LINE.match(value.strip())
+        if match is None:
+            return value
+        path, line = match["path"].removeprefix("./"), int(match["line"])
+        for start, end in ranges.get(path, []):
+            if start - _NEAR <= line <= end + _NEAR:
+                return value
+        return path
+
+    def walk(model: BaseModel) -> None:
+        for name in type(model).model_fields:
+            value = getattr(model, name)
+            if name in ("support", "source") and isinstance(value, str):
+                setattr(model, name, pin(value))
+            elif name == "sources" and isinstance(value, list):
+                setattr(model, name, [pin(v) if isinstance(v, str) else v for v in value])
+            elif isinstance(value, BaseModel):
+                walk(value)
+            elif isinstance(value, list):
+                for item in value:
+                    if isinstance(item, BaseModel):
+                        walk(item)
+
+    walk(answer)
 
 
 def _read_references(run: AgentRun, commit_sha: str) -> list[CodeReference]:

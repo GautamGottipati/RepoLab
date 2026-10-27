@@ -27,7 +27,14 @@ export type EventType =
   | "experiment_variant_started"
   | "experiment_variant_completed"
   | "upgrade_available"
-  | "upgrade_applied";
+  | "upgrade_applied"
+  | "artifact_queued"
+  | "artifact_started"
+  | "artifact_verifying"
+  | "artifact_ready"
+  | "artifact_updated"
+  | "artifact_failed"
+  | "artifact_blocked";
 
 /**
  * One event from a job's stream.
@@ -46,6 +53,11 @@ export type JobEvent = {
   created_at: string;
 };
 
+export type TaskHealth = "waiting" | "working" | "interrupted";
+
+/** A stage and a machine key (`architecture.components`, `image`…), set where the work begins. */
+export type TaskActivity = { stage: string; key: string; started_at: string | null };
+
 export type JobState = {
   job_id: string;
   status: JobStatus;
@@ -54,8 +66,15 @@ export type JobState = {
   last_seq: number;
   event_count: number;
   elapsed_seconds: number | null;
-  stalled: boolean;
-  stall_summary: string;
+  /** From the worker's heartbeat, never from event silence. `null` once finished. */
+  health: TaskHealth | null;
+  /** What the worker is doing now. The screen owns the words (`ACTIVITY_COPY`). */
+  activity: TaskActivity | null;
+  heartbeat_at: string | null;
+  /** Which worker holds the job. Diagnostics only. */
+  worker: string | null;
+  /** When the last milestone event was recorded. Diagnostics only. */
+  last_progress_at: string | null;
   error: string | null;
   ingestion_id: number | null;
 };
@@ -69,12 +88,27 @@ export type JobCreated = {
 
 // -- manifest ---------------------------------------------------------------
 
+export type EvidenceStrength =
+  | "direct_source"
+  | "build_metadata"
+  | "configuration"
+  | "test"
+  | "in_repository_documentation"
+  | "inferred_from_multiple_files";
+
 export type CodeReference = {
   path: string;
   start_line: number | null;
   end_line: number | null;
   commit_sha: string | null;
   excerpt: string | null;
+  /** The definition the range covers, when there is one. */
+  symbol?: string | null;
+  strength?: EvidenceStrength | null;
+  /** Set only by RepoLab's resolver, which computed and re-read the range. */
+  verified?: boolean;
+  /** Why it is (un)verified, or what was corrected ("corrected from line 12"). */
+  verification?: string | null;
 };
 
 export type InteractionSurface = {
@@ -228,6 +262,12 @@ export type ArchitectureGraph = {
   subsystems?: Subsystem[];
   learning_path?: LearningStep[];
   walkthroughs?: Walkthrough[];
+  /** Schema 4: the runtime architecture. Absent on older graphs. */
+  abstractions?: KeyAbstraction[];
+  relations?: CodeRelation[];
+  runtime?: RuntimeModel;
+  flows?: Flow[];
+  reading_path?: ReadingItem[];
 };
 
 export type ArchitectureLevel = "system" | "subsystem" | "component" | "implementation";
@@ -265,6 +305,9 @@ export type Evidence = {
   url: string | null;
   target_id: string | null;
   excerpt: string | null;
+  end_line?: number | null;
+  symbol?: string | null;
+  verified?: boolean;
 };
 
 export type RepositoryUnderstanding = {
@@ -310,6 +353,105 @@ export type Subsystem = {
   evidence: Evidence[];
   provenance: Provenance;
   inferred_fields: string[];
+  /** Schema 4: from build files and imports. */
+  depends_on?: ModuleDependency[];
+  used_by?: string[];
+  key_packages?: string[];
+};
+
+export type ModuleDependency = {
+  target: string;
+  via: string;
+  evidence: CodeReference;
+};
+
+// -- schema 4: the runtime architecture, from verified code -------------------------
+
+export type KeyAbstraction = {
+  id: string;
+  name: string;
+  kind: string;
+  definition: CodeReference;
+  referenced_by: number;
+  subsystem: string | null;
+  usages: CodeReference[];
+};
+
+export type CodeRelationType = "creates" | "calls" | "extends" | "references";
+
+export type CodeRelation = {
+  source: string;
+  target: string;
+  type: CodeRelationType;
+  evidence: CodeReference;
+};
+
+export type Responsibility = { text: string; reference: CodeReference; provenance: Provenance };
+
+export type RuntimeComponent = {
+  id: string;
+  name: string;
+  description: string | null;
+  members: string[];
+  responsibilities: Responsibility[];
+  source_references: CodeReference[];
+  subsystem_ids: string[];
+  node_ids: string[];
+  provenance: Provenance;
+  inferred_fields: string[];
+};
+
+export type RuntimeLink = {
+  source: string;
+  target: string;
+  type: CodeRelationType;
+  label: string | null;
+  label_provenance: Provenance;
+  evidence: CodeReference[];
+};
+
+export type RuntimeModel = {
+  components: RuntimeComponent[];
+  links: RuntimeLink[];
+  provenance: Provenance;
+};
+
+export type FlowStep = {
+  sequence: number;
+  component: string;
+  action: string;
+  input: string | null;
+  output: string | null;
+  references: CodeReference[];
+};
+
+export type Flow = {
+  id: string;
+  name: string;
+  description: string | null;
+  steps: FlowStep[];
+  /** True only when every hand-over is a verified call or construction. */
+  ordered: boolean;
+  provenance: Provenance;
+};
+
+export type ReadingItem = {
+  title: string;
+  why: string;
+  reference: CodeReference;
+  component: string | null;
+};
+
+export type SourceFile = {
+  repo_url: string;
+  commit_sha: string;
+  path: string;
+  captured: boolean;
+  sha256: string | null;
+  first_line: number;
+  lines: string[];
+  line_count: number;
+  host_url: string | null;
 };
 
 export type SystemConcept = {
@@ -392,6 +534,64 @@ export type ArchitectureView = {
   node_actions: Record<string, NodeActions>;
   /** The same, for concepts and subsystems, by their ids. */
   concept_actions?: Record<string, NodeActions>;
+  /** Each architecture artifact's status, keyed without the `architecture.` prefix. */
+  sections?: Record<string, ArtifactStatus>;
+};
+
+// -- analysis artifacts ---------------------------------------------------------
+
+export type ArtifactStatus =
+  | "not_requested"
+  | "queued"
+  | "generating"
+  | "verifying"
+  | "ready"
+  | "partial"
+  | "failed"
+  | "blocked";
+
+export type ArtifactType =
+  | "repo.facts"
+  | "repo.manifest"
+  | "architecture.structure"
+  | "architecture.runtime"
+  | "architecture.source"
+  | "architecture.components"
+  | "architecture.summary"
+  | "architecture.runtime_naming";
+
+export type ArtifactError = {
+  error_code: string;
+  stage: string;
+  message: string;
+  retryable: boolean;
+  timestamp?: string;
+};
+
+/** One piece of what RepoLab knows about a commit. The backend owns every status. */
+export type ArtifactState = {
+  type: ArtifactType;
+  status: ArtifactStatus;
+  priority: "P0" | "P1" | "P2";
+  version: string;
+  lazy: boolean;
+  depends_on: ArtifactType[];
+  description: string;
+  updated_at: string | null;
+  started_at: string | null;
+  completed_at: string | null;
+  duration_ms: number | null;
+  cache_hits: number;
+  error: ArtifactError | null;
+};
+
+export type ArtifactDetail = ArtifactState & { payload: Record<string, unknown> | null };
+
+export type ArtifactList = {
+  job_id: string;
+  /** `null` until the job has resolved which commit it analyses. */
+  commit_sha: string | null;
+  artifacts: ArtifactState[];
 };
 
 /** One value a real run produced. Never estimated. */
@@ -1516,4 +1716,8 @@ export type ExperienceSessionView = {
     transcript: { command: string; label: string; output?: string; explanation?: string; source_files?: string[] }[];
   };
   experience: ExperienceDefinition | null;
+  /** While preparing: from the preparing worker's heartbeat. */
+  health?: TaskHealth | null;
+  /** While preparing: the step the worker is on. */
+  activity?: TaskActivity | null;
 };

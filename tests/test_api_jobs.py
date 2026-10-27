@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import json
 from collections.abc import Iterator
+from datetime import UTC, datetime, timedelta
 
 import pytest
 from fastapi.testclient import TestClient
@@ -20,7 +21,7 @@ from api import deps
 from api.main import app
 from repolab.db import Base
 from repolab.db.jobs import append_event, create_job, mark_finished, mark_running
-from repolab.db.models import AnalyticsEventRecord, RepoManifestRecord
+from repolab.db.models import AnalyticsEventRecord, Job, JobEventRecord, RepoManifestRecord
 from repolab.events import EventType, JobEvent, JobStatus
 
 REPO = "https://github.com/AlexIoannides/pyspark-example-project"
@@ -166,21 +167,65 @@ class TestJobState:
         assert body["attempts"] == 1
         assert body["elapsed_seconds"] >= 0
 
-    def test_a_running_job_with_recent_events_is_not_stalled(
+    def test_a_running_job_with_a_heartbeat_is_working_however_long_since_progress(
+        self, client: TestClient, db: sessionmaker[Session], liveness_store
+    ) -> None:
+        """The case the old stall banner got wrong: a long model call, no events."""
+        from repolab.events import Liveness, job_key
+
+        job_id = make_job(db, status=JobStatus.RUNNING)
+        seed_events(db, job_id, 1)
+        with db() as session:
+            # The last milestone was five minutes ago.
+            session.query(JobEventRecord).filter(JobEventRecord.job_id == job_id).update(
+                {"created_at": datetime.now(UTC) - timedelta(minutes=5)}
+            )
+            session.get(Job, job_id).started_at = datetime.now(UTC) - timedelta(minutes=6)
+            session.commit()
+        live = Liveness(liveness_store, job_key(job_id))
+        with live:
+            live.set_activity("architecture", "architecture.components")
+            body = client.get(f"/jobs/{job_id}").json()
+        assert body["health"] == "working"
+        assert body["activity"]["key"] == "architecture.components"
+        assert body["activity"]["stage"] == "architecture"
+        assert body["heartbeat_at"] is not None
+        assert "stalled" not in body and "stall_summary" not in body
+
+    def test_a_running_job_whose_heartbeat_stopped_is_interrupted(
         self, client: TestClient, db: sessionmaker[Session]
     ) -> None:
         job_id = make_job(db, status=JobStatus.RUNNING)
-        seed_events(db, job_id, 1)
-        assert client.get(f"/jobs/{job_id}").json()["stalled"] is False
+        with db() as session:
+            session.get(Job, job_id).started_at = datetime.now(UTC) - timedelta(minutes=3)
+            session.commit()
+        body = client.get(f"/jobs/{job_id}").json()
+        assert body["health"] == "interrupted"
+        assert body["activity"] is None
 
-    def test_a_finished_job_is_never_stalled(
+    def test_a_just_started_job_without_a_heartbeat_yet_is_working(
         self, client: TestClient, db: sessionmaker[Session]
     ) -> None:
-        """However long ago it ended, a completed job is not stuck."""
+        job_id = make_job(db, status=JobStatus.RUNNING)
+        assert client.get(f"/jobs/{job_id}").json()["health"] == "working"
+
+    def test_an_unreadable_store_never_reports_interruption(
+        self, client: TestClient, db: sessionmaker[Session], liveness_store
+    ) -> None:
+        job_id = make_job(db, status=JobStatus.RUNNING)
+        with db() as session:
+            session.get(Job, job_id).started_at = datetime.now(UTC) - timedelta(minutes=10)
+            session.commit()
+        liveness_store.unavailable = True
+        assert client.get(f"/jobs/{job_id}").json()["health"] == "working"
+
+    def test_a_finished_job_has_no_health(
+        self, client: TestClient, db: sessionmaker[Session]
+    ) -> None:
         job_id = make_job(db, status=JobStatus.COMPLETED)
         body = client.get(f"/jobs/{job_id}").json()
         assert body["status"] == "completed"
-        assert body["stalled"] is False
+        assert body["health"] is None
 
     def test_a_failure_reports_its_error(
         self, client: TestClient, db: sessionmaker[Session]

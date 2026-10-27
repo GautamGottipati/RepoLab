@@ -10,37 +10,23 @@ from __future__ import annotations
 import asyncio
 import os
 from contextlib import AbstractContextManager
-from pathlib import Path
 
 import structlog
 from sqlalchemy.orm import Session, sessionmaker
 
-from repolab.agents import AgentStatus, RepositoryInvestigatorAgent
 from repolab.agents.models import AgentRun
 from repolab.analytics import Analytics, AnalyticsEventType, DbAnalyticsWriter
-from repolab.architecture import build_architecture
-from repolab.classify import classify
 from repolab.config import Settings, get_settings
-from repolab.db import build_engine, build_session_factory, save_ingestion, session_scope
-from repolab.db.jobs import get_job, mark_finished, mark_running, save_agent_run
+from repolab.db import build_engine, build_session_factory, session_scope
+from repolab.db.jobs import get_job, mark_finished, mark_running
 from repolab.events import ActivityReporter, DbEventEmitter, EventType, JobStatus
+from repolab.events.liveness import ActivitySink, job_key, liveness_for
 from repolab.evidence.models import DocumentationReference
-from repolab.experiences.facts import gather_facts
 from repolab.failures import describe, explain
-from repolab.ingest.clone import TemporaryClone
-from repolab.ingest.content import ReadBudget
-from repolab.ingest.detectors.base import DetectionContext
-from repolab.ingest.enrich import EnrichmentResult
-from repolab.ingest.languages import detect_languages
-from repolab.ingest.limits import DEFAULT_LIMITS, IngestLimits, LimitReport
-from repolab.ingest.pipeline import IngestionResult
-from repolab.ingest.tree import build_file_tree
 from repolab.ingest.url import validate_repo_url
 from repolab.interfaces import ResearchProvider
 from repolab.llm import ModelRouter
-from repolab.manifest.builder import build_evidence, build_manifest
 from repolab.manifest.models import RepoManifest, SurfaceType
-from repolab.runtime.plan import plan_runtime
 from repolab.sandbox.docker import docker_available, ensure_image
 
 log = structlog.get_logger(__name__)
@@ -76,8 +62,13 @@ def investigate_repository(job_id: str, url: str) -> str:
         mark_running(session, job_id)
         session.commit()
 
+    # The heartbeat says "this worker is alive and on it" for as long as the
+    # job runs, independently of whether any milestone has been reached.
     try:
-        result = asyncio.run(_investigate(job_id, url, settings, emitter, analytics, factory))
+        with liveness_for(job_key(job_id)) as liveness:
+            result = asyncio.run(
+                _investigate(job_id, url, settings, emitter, analytics, factory, liveness)
+            )
     except Exception as exc:
         # What a person reads, with the exception's own words kept behind it.
         failure = explain(exc)
@@ -114,171 +105,47 @@ async def _investigate(
     emitter: DbEventEmitter,
     analytics: Analytics,
     factory: sessionmaker[Session],
+    liveness: ActivitySink | None = None,
 ) -> str:
-    limits: IngestLimits = DEFAULT_LIMITS
+    """The investigation, published artifact by artifact. See :mod:`worker.analysis`."""
+    from worker.analysis import analyse
+    from worker.jobs import enqueue_artifact
+
     repo_url = validate_repo_url(url)
-
-    # The four phases a person following along sees. The reporter emits one
-    # user-facing status per phase entered; the detailed events still flow
-    # underneath it, so the browser can show both a tracker and a full feed.
-    activity = ActivityReporter(emitter)
-    activity.enter("inspecting_repository")
-
-    emitter.emit(
-        EventType.STEP_STARTED,
-        f"cloning {repo_url.slug}",
-        step="clone",
-        data={"repo": repo_url.slug},
+    ingestion_id = await analyse(
+        job_id,
+        repo_url,
+        settings=settings,
+        emitter=emitter,
+        analytics=analytics,
+        factory=factory,
+        providers=lambda: _providers(settings, factory),
+        enqueue=_safe_enqueue(enqueue_artifact),
+        prepare=lambda manifest, activity: prepare_environment(manifest, emitter, activity),
+        liveness=liveness,
     )
-    with TemporaryClone(repo_url, limits=limits) as clone:
-        emitter.emit(
-            EventType.STEP_DONE,
-            f"cloned at {clone.commit_sha[:12]}",
-            step="clone",
-            data={"commit_sha": clone.commit_sha, "branch": clone.branch},
-        )
-
-        report = LimitReport()
-        budget = ReadBudget(limits, report)
-        tree = build_file_tree(clone.path, limits=limits, report=report)
-        languages = detect_languages(tree)
-        emitter.emit(
-            EventType.PARTIAL_RESULT,
-            f"{tree.file_count} files, "
-            f"{', '.join(s.language for s in languages) or 'no languages detected'}",
-            step="clone",
-            data={
-                "file_count": tree.file_count,
-                "languages": [s.language for s in languages],
-            },
-        )
-
-        context = DetectionContext(root=Path(clone.path), tree=tree, commit_sha=clone.commit_sha)
-        router, research = _providers(settings, factory)
-
-        analytics.record(AnalyticsEventType.AGENT_STARTED, agent="repository_investigator")
-        agent = RepositoryInvestigatorAgent(context, budget, research=research, router=router)
-        investigation = await agent.investigate(emitter, activity=activity)
-
-        for step in investigation.run.steps:
-            if step.request is not None:
-                analytics.record(AnalyticsEventType.TOOL_CALLED, tool=step.request.tool, ok=step.ok)
-
-        if investigation.run.status is AgentStatus.FAILED:
-            analytics.record(
-                AnalyticsEventType.AGENT_FAILED, error=investigation.run.error or "unknown"
-            )
-            raise RuntimeError(investigation.run.error or "investigation failed")
-        analytics.record(
-            AnalyticsEventType.AGENT_COMPLETED,
-            iterations=investigation.run.iterations,
-            findings=investigation.findings,
-        )
-
-        activity.enter("understanding_data_flow")
-        emitter.emit(EventType.STEP_STARTED, "classifying interaction surfaces", step="classify")
-        outcome = investigation.outcome
-        classification = await classify(
-            outcome.run,
-            entrypoints=outcome.entrypoints,
-            services=outcome.services,
-            router=router,
-        )
-        primary_label = classification.primary_type.value if classification.primary_type else "none"
-        emitter.emit(
-            EventType.STEP_DONE,
-            f"primary experience: {primary_label}",
-            step="classify",
-            data={
-                "surfaces": [
-                    {"type": s.type.value, "confidence": s.confidence}
-                    for s in classification.surfaces
-                ],
-                "hybrid": classification.hybrid,
-                "resolved_by": classification.resolved_by.value,
-            },
-        )
-
-        emitter.emit(EventType.STEP_STARTED, "building the manifest", step="manifest")
-        manifest = build_manifest(
-            repo_url=repo_url.normalized,
-            commit_sha=clone.commit_sha,
-            outcome=outcome,
-            languages=languages,
-            classification=classification,
-        )
-        manifest.runtime = plan_runtime(context, manifest)
-        manifest.facts = gather_facts(context)
-        if manifest.runtime.services:
-            emitter.emit(
-                EventType.STEP_DONE,
-                "how it would run: "
-                + ", ".join(
-                    f"{s.name} ({s.image}, port {s.port})" for s in manifest.runtime.services
-                ),
-                step="manifest",
-            )
-        emitter.emit(
-            EventType.STEP_STARTED, "understanding what this repository is", step="architecture"
-        )
-        architecture = await build_architecture(
-            context, outcome, manifest, router=router, docs=retrieved_docs(investigation.run)
-        )
-        emitter.emit(
-            EventType.STEP_DONE,
-            f"architecture: {len(architecture.subsystems)} major parts, "
-            f"{len(architecture.system_model.concepts)} concepts, "
-            f"{len(architecture.nodes)} components, {architecture.completeness.value}",
-            step="architecture",
-            data={
-                "components": len(architecture.nodes),
-                "generated_by": architecture.generated_by.value,
-                "completeness": architecture.completeness.value,
-                "dropped": architecture.dropped,
-            },
-        )
-        result = IngestionResult(
-            repo_url=repo_url,
-            commit_sha=clone.commit_sha,
-            branch=clone.branch,
-            manifest=manifest,
-            architecture=architecture,
-            enrichment=EnrichmentResult(architecture_summary=architecture.summary),
-            evidence=build_evidence(outcome),
-            classification=classification,
-            languages=languages,
-            file_count=tree.file_count,
-            total_size=tree.total_size,
-            tree_truncated=tree.truncated,
-            limits_hit=list(report.hit),
-            bytes_read=budget.bytes_read,
-            files_read=budget.files_read,
-        )
-        analytics.record(
-            AnalyticsEventType.REPO_MANIFEST_CREATED,
-            confidence=manifest.confidence,
-            surfaces=len(manifest.interaction_surfaces),
-        )
-
     with factory() as session:
-        ingestion = save_ingestion(session, result)
-        save_agent_run(session, job_id, investigation.run)
-        mark_finished(session, job_id, status=JobStatus.COMPLETED, ingestion_id=ingestion.id)
+        mark_finished(session, job_id, status=JobStatus.COMPLETED, ingestion_id=ingestion_id)
         session.commit()
-        ingestion_id = ingestion.id
-
     emitter.emit(
         EventType.STEP_DONE,
         "investigation complete",
         step="manifest",
-        data={"ingestion_id": ingestion_id, "confidence": manifest.confidence},
+        data={"ingestion_id": ingestion_id},
     )
-
-    prepare_environment(manifest, emitter, activity)
-
     analytics.record(AnalyticsEventType.REPO_READY, ingestion_id=ingestion_id)
     log.info("job.completed", job_id=job_id, ingestion_id=ingestion_id)
     return job_id
+
+
+def _safe_enqueue(enqueue: object) -> object:
+    def run(job_id: str, artifact_type: str) -> None:
+        try:
+            enqueue(job_id, artifact_type)  # type: ignore[operator]
+        except Exception as exc:  # noqa: BLE001 - the artifact stays queued and can be retried
+            log.warning("artifact.enqueue_failed", artifact_type=artifact_type, error=str(exc))
+
+    return run
 
 
 def prepare_environment(

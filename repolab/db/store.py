@@ -201,3 +201,47 @@ def load_runtime_overlay(
         cli_overlay(graph, {"id": cli_experiment.id, "runs": cli_experiment.runs}, overlay)
     roll_up(graph, overlay)
     return overlay
+
+
+# -- progressive updates --------------------------------------------------------
+#
+# An ingestion is saved as soon as the deterministic manifest and architecture
+# exist, then refined in place as background passes finish. Each update replaces
+# one JSON document; nothing else about the ingestion changes.
+
+
+def find_ingestion(session: Session, repo_url: str, commit_sha: str) -> Ingestion | None:
+    """The ingestion of *repo_url* at exactly *commit_sha*, if one was saved."""
+    return session.scalar(
+        select(Ingestion)
+        .join(Repository)
+        .where(Repository.url == repo_url, Ingestion.commit_sha == commit_sha)
+        .limit(1)
+    )
+
+
+def update_manifest(session: Session, ingestion_id: int, manifest: RepoManifest) -> None:
+    record = session.scalar(
+        select(RepoManifestRecord).where(RepoManifestRecord.ingestion_id == ingestion_id)
+    )
+    if record is None:
+        return
+    record.manifest = manifest.model_dump(mode="json")
+    record.confidence = manifest.confidence
+    primary = manifest.primary_surface
+    record.primary_surface = primary.type.value if primary is not None else None
+    session.flush()
+
+
+def update_architecture(session: Session, ingestion_id: int, graph: ArchitectureGraph) -> None:
+    record = session.scalar(
+        select(ArchitectureRecord).where(ArchitectureRecord.ingestion_id == ingestion_id)
+    )
+    if record is None:
+        return
+    record.graph = graph.model_dump(mode="json")
+    record.generated_by = graph.generated_by.value
+    record.node_count = len(graph.nodes)
+    record.edge_count = len(graph.edges)
+    record.summary = graph.summary or record.summary
+    session.flush()

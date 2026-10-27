@@ -176,6 +176,13 @@ const EVENT_TYPES: EventType[] = [
   "experiment_variant_completed",
   "upgrade_available",
   "upgrade_applied",
+  "artifact_queued",
+  "artifact_started",
+  "artifact_verifying",
+  "artifact_ready",
+  "artifact_updated",
+  "artifact_failed",
+  "artifact_blocked",
 ];
 
 /**

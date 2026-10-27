@@ -55,7 +55,7 @@ export default function ExperiencesPage() {
 }
 
 function Experiences() {
-  const { jobId, manifest, architecture } = useWorkspace();
+  const { jobId, manifest, architecture, experiences } = useWorkspace();
   const router = useRouter();
   const params = useSearchParams();
   const [catalog, setCatalog] = useState<ExperienceCatalog | null>(null);
@@ -87,7 +87,8 @@ function Experiences() {
     return () => {
       cancelled = true;
     };
-  }, [jobId, manifest]);
+    // Fetched again whenever what the listing is ranked from arrives or is refined.
+  }, [jobId, manifest, architecture, experiences]);
 
   if (!manifest) return <Skeleton rows={5} />;
 
@@ -140,6 +141,7 @@ function Experiences() {
           repoUrl={catalog.repo_url}
           commitSha={catalog.commit_sha}
           onClose={() => openSession(null)}
+          onSession={openSession}
         />
       )}
 

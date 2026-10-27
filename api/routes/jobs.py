@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import asyncio
 from collections.abc import AsyncIterator
+from datetime import datetime
 from typing import Annotated, Any
 
 import structlog
@@ -27,6 +28,7 @@ from api.deps import get_session
 from repolab.architecture import load_graph
 from repolab.architecture.actions import NodeActions, concept_actions, node_actions
 from repolab.architecture.runtime import RuntimeOverlay
+from repolab.artifacts.overlay import architecture_sections, with_refinements
 from repolab.db.builds import load_builds
 from repolab.db.jobs import (
     count_events,
@@ -41,7 +43,17 @@ from repolab.db.models import (
     RepoManifestRecord,
 )
 from repolab.db.store import load_runtime_overlay
-from repolab.events import EventType, JobEvent, JobStatus, detect_stall
+from repolab.events import (
+    EventType,
+    JobEvent,
+    JobStatus,
+    LivenessRead,
+    job_key,
+    liveness,
+    read_liveness,
+    task_health,
+)
+from repolab.events.liveness import Activity, Health
 from repolab.experiences.catalog import ExperienceCatalog, experiences_for
 from repolab.ingest.url import InvalidRepoUrlError, validate_repo_url
 from repolab.manifest.models import RepoManifest
@@ -81,8 +93,18 @@ class JobState(BaseModel):
     last_seq: int
     event_count: int
     elapsed_seconds: float | None = None
-    stalled: bool = False
-    stall_summary: str = ""
+    health: Health | None = None
+    """``working``, ``waiting`` or ``interrupted`` -- from the worker's heartbeat,
+    never from how long it has been since the last event. ``None`` once finished."""
+    activity: Activity | None = None
+    """What the worker is doing now, as a stage and a machine key; the screen
+    owns the words. ``None`` when unknown."""
+    heartbeat_at: datetime | None = None
+    worker: str | None = None
+    """Which worker holds the job. Diagnostics only."""
+    last_progress_at: datetime | None = None
+    """When the last milestone event was recorded. For diagnostics only: a long
+    model call legitimately records none."""
     error: str | None = None
     ingestion_id: int | None = None
 
@@ -102,8 +124,12 @@ def _state(session: Session, job: Job) -> JobState:
         elapsed = round((end - started).total_seconds(), 3)
 
     job_status = JobStatus(job.status)
-    # A finished job is never stalled, however long ago its last event was.
-    stall = detect_stall(None if job_status.is_terminal else last_event_at(session, job.id))
+    live = (
+        LivenessRead(known=True)
+        if job_status.is_terminal
+        else read_liveness(liveness.default_store(), job_key(job.id))
+    )
+    snapshot = live.snapshot
 
     return JobState(
         job_id=job.id,
@@ -113,8 +139,11 @@ def _state(session: Session, job: Job) -> JobState:
         last_seq=job.last_seq,
         event_count=count_events(session, job.id),
         elapsed_seconds=elapsed,
-        stalled=stall.stalled,
-        stall_summary=stall.summary,
+        health=task_health(job_status, live, job.started_at or job.created_at),
+        activity=snapshot.activity if snapshot else None,
+        heartbeat_at=snapshot.heartbeat_at if snapshot else None,
+        worker=snapshot.worker if snapshot else None,
+        last_progress_at=last_event_at(session, job.id),
         error=job.error,
         ingestion_id=job.ingestion_id,
     )
@@ -284,6 +313,8 @@ class ArchitectureView(BaseModel):
     node_actions: dict[str, NodeActions] = Field(default_factory=dict)
     concept_actions: dict[str, NodeActions] = Field(default_factory=dict)
     """The same, for system-model concepts and subsystems (by their ids)."""
+    sections: dict[str, str] = Field(default_factory=dict)
+    """Each architecture artifact's status (``structure``, ``runtime_naming``...)."""
 
 
 @router.get("/{job_id}/architecture", response_model=ArchitectureView)
@@ -296,6 +327,10 @@ def job_architecture(
     graph = load_graph(record.graph)
 
     commit_sha = record.ingestion.commit_sha if record.ingestion is not None else ""
+    sections: dict[str, str] = {}
+    if commit_sha:
+        graph = with_refinements(session, job.repo_url, commit_sha, graph)
+        sections = architecture_sections(session, job.repo_url, commit_sha)
     manifest_record = (
         session.query(RepoManifestRecord)
         .filter(RepoManifestRecord.ingestion_id == job.ingestion_id)
@@ -316,6 +351,7 @@ def job_architecture(
         graph=graph.model_dump(mode="json"),
         node_actions=actions,
         concept_actions=concept_actions(graph, actions),
+        sections=sections,
     )
 
 

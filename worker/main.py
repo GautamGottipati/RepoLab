@@ -14,6 +14,7 @@ from redis import Redis
 from rq import Queue, Worker
 
 from repolab.config import Settings, get_settings
+from worker.jobs import QUEUE_ORDER
 
 
 class WorkerRestarted(RuntimeError):
@@ -23,8 +24,6 @@ class WorkerRestarted(RuntimeError):
     to recognise, and so the sentence a user reads lives with every other one.
     """
 
-
-QUEUE_NAME = "repolab"
 
 #: macOS refuses to ``fork()`` a process that has initialised Objective-C state
 #: unless this is set.
@@ -95,9 +94,9 @@ def main() -> None:
     resolve_abandoned_jobs(settings)
 
     connection = Redis.from_url(settings.redis_url)
-    queue = Queue(QUEUE_NAME, connection=connection)
-    log.info("worker.starting", queue=QUEUE_NAME)
-    Worker([queue], connection=connection).work(with_scheduler=True)
+    queues = [Queue(name, connection=connection) for name in QUEUE_ORDER]
+    log.info("worker.starting", queues=list(QUEUE_ORDER))
+    Worker(queues, connection=connection).work(with_scheduler=True)
 
 
 if __name__ == "__main__":

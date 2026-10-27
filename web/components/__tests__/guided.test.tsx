@@ -179,10 +179,10 @@ describe("perspectives", () => {
     renderGuided();
     const nav = screen.getByRole("navigation", { name: "Architecture perspectives" });
     expect(screen.getByTestId("perspective-overview").getAttribute("aria-current")).toBe("page");
-    expect(nav.textContent).toContain("Core components");
-    fireEvent.click(screen.getByTestId("perspective-components"));
+    expect(nav.textContent).toContain("Modules");
+    fireEvent.click(screen.getByTestId("perspective-modules"));
     expect(screen.queryByTestId("orientation")).toBeNull();
-    expect(screen.getAllByTestId("subsystem-card")).toHaveLength(3);
+    expect(screen.getAllByTestId("module-card")).toHaveLength(3);
     fireEvent.click(screen.getByTestId("perspective-overview"));
     expect(screen.getByTestId("orientation")).toBeTruthy();
   });

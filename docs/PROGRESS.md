@@ -1,6 +1,6 @@
 # RepoLab Progress
 
-Last updated: 2026-10-25 (UI/UX redesign: a learning environment, not a dashboard)
+Last updated: 2026-10-27 (Calm working states: heartbeat ≠ progress)
 
 ---
 
@@ -2665,6 +2665,375 @@ one colour everywhere.
 - The `ask/[experimentId]` page keeps its earlier layout.
 
 ---
+
+### Phase 21 — Evidence-grounded Architecture Explorer
+
+Every architectural claim is now one or two clicks from exact, commit-pinned
+source lines that RepoLab computed and re-read itself. The architecture also
+shows the system's *runtime machinery*, read from the code, not only the
+surfaces the pattern analyzers find.
+
+**Source references and verification** (`repolab/sources/`)
+
+- `CodeReference` gains `symbol`, `strength` (direct source, build metadata,
+  configuration, test, repository docs, inferred from several files),
+  `verified` and `verification`. `Evidence` gains `end_line`, `symbol` and
+  `verified`. All fields are optional, so old data still loads.
+- `symbols.py` indexes definitions deterministically, with no new
+  dependencies, for Python, Java, Kotlin, Scala, JS/TS, Go and Rust:
+  - one pattern per language finds a definition;
+  - the end comes from a single brace-matching pass per file (strings and
+    comments skipped), or from indentation;
+  - a header without a body (`case class X(...)`) ends on its own line.
+- `resolve.verify_reference` is the only source of trusted line numbers:
+  - **with a symbol**, the range is the definition's own range, re-read, and a
+    hinted line that disagrees is recorded as "corrected from line N";
+  - **without a symbol**, the expected text must be at the line (±3);
+  - a wrong file with a symbol defined exactly once elsewhere resolves there;
+  - an ambiguous symbol, a missing file or an out-of-range line is unverified,
+    with the reason;
+  - **a reference from another commit is refused, never re-resolved.**
+- **Model citations:**
+  - synthesis edges are accepted only if they copy a `path:line` RepoLab showed
+    the model, and they reuse RepoLab's own reference;
+  - orientation accepts `path#Name` (resolved) or a shown `path:line`; any
+    other line number is reduced to the file;
+  - Ask answers keep a `path:line` only inside a range the investigation read;
+    otherwise it becomes the file (`pin_cited_lines`).
+- `architecture/verify.py` re-checks every reference in the graph at the
+  investigated commit and stamps commit and strength. A runtime part whose
+  source can't be verified is removed with its links. `cited_paths` lists the
+  files to keep.
+
+**Commit-pinned source store**
+
+- New table `source_files`, with fields repo, commit, path, sha256, size,
+  content and `captured_by` (Alembic `d4f6a8c0e2b3`).
+- The investigation reads the cited files while its clone exists and stores
+  them afterwards. Ask stores the files its answer cites, under the commit it
+  read.
+- Caps: 1 MB per file, 3,000 files and 80 MB per commit. Binary files are
+  skipped, never truncated, and paths outside the checkout are refused.
+- `GET /jobs/{id}/source?path=&around=` and
+  `GET /sources?repo_url&commit_sha&path` serve only RepoLab's copies. A file
+  that wasn't captured says so and links to the same commit on GitHub; it is
+  never replaced by another version.
+
+**Ask pinned to the investigated commit**
+
+- `ingest/clone.fetch_commit` runs `git init`, `fetch --depth 1 <url> <sha>`
+  and `checkout FETCH_HEAD` under the same hardened git config. Only a SHA is
+  accepted.
+- `TemporaryClone(commit=…)` falls back to the default branch if the host
+  refuses, and records `requested_commit`. The clone event says plainly when
+  citations come from a newer commit.
+- The experiment run step now fetches the approved commit, instead of failing
+  when the default branch has moved.
+
+**The runtime architecture from code** (`architecture/code_model.py`,
+`runtime_synthesis.py`, `modules.py`)
+
+- **Corpus:** non-test, non-peripheral source files, capped at 8,000 files and
+  60 MB. Spark takes about 8 seconds: 4,646 files and 84k definitions.
+- **Key abstractions:** top-level types ranked by how many other files use them,
+  plus:
+  - a generic runtime-role vocabulary (Scheduler, Server, Executor, Manager,
+    Handler…);
+  - a penalty for value and type tables;
+  - generic names (Optional, Utils…) excluded;
+  - up to 6 parallel definitions (JVM and Python), with the class preferred
+    over its companion object.
+- **Relations:**
+  - one type's own code calling, creating, extending or naming another, with
+    strings and comments blanked;
+  - a call through a field counts only if the type *declares* that field with
+    the callee's type, so `resolver.getChecksumFile` on a field named like
+    another class is not a call on that class;
+  - each relation sits at a verified line.
+- **Runtime model:**
+  - components are made of abstractions;
+  - links exist only where a relation exists between their members;
+  - flows are greedy chains of calls and constructions;
+  - a reading path follows the flow order.
+  - Function-based repositories (fewer than 3 type-based components) use their
+    detected, evidenced components and flows instead: pipeline steps, routes
+    and handlers.
+- **Super runtime pass:**
+  - groups verified types into 5–8 named components;
+  - writes descriptions and responsibilities, each tied to a member's verified
+    definition;
+  - labels what passes along existing links;
+  - names flows along existing links.
+  - It can't add members, links or steps. Every refusal is counted, and a flow
+    is ordered only if every hand-over is a call or construction.
+  - Budget: 16k tokens. At 6k, Super's reasoning used the whole budget and
+    returned nothing, which was observed live.
+- **Modules:** dependencies come from build files, each at its verified line:
+  - Maven sibling artifacts, with the Scala-version suffix normalised and test
+    scope excluded;
+  - Gradle `project(':x')`;
+  - npm workspaces;
+  - Cargo `path =`.
+- Schema v4 adds `abstractions`, `relations`, `runtime`, `flows`,
+  `reading_path` and `Subsystem.depends_on/used_by/key_packages`. Schema-3
+  graphs still render.
+
+**Frontend**
+
+- `components/source-ref.tsx` is used everywhere, provided by the workspace
+  shell:
+  - **`SourceRef`** is a chip (`path L120–184`, with symbol and a verified
+    mark). An unverified reference reads "Source location could not be
+    verified", with no link.
+  - **`SourceViewer`** is a drawer showing repository, commit, file and range,
+    with the range highlighted and scrolled to, "RepoLab re-read these lines",
+    and a GitHub link at the same commit. A citation from another commit says
+    so.
+  - Used in the component inspector, the runtime panels, flows, modules, the
+    reading path and Ask's code drawer ("Open the whole file at …").
+- The Architecture page shows "Architecture analyzed at commit …". Perspectives:
+  - **Overview:** Core ideas (numbered runtime components), plus a runtime
+    diagram with **labelled edges**.
+  - **Runtime.**
+  - **Flows:** steps, and a **sequence view only when the order is verified**;
+    otherwise "Order not verified".
+  - **Modules:** depends on / used by, with the build-file line.
+  - **Source map:** reading path and repository map.
+  - Learning path and Related experiments are unchanged.
+- **Runtime component panel:**
+  - responsibilities with sources, definitions, and connections with their
+    lines;
+  - related flows;
+  - Ask RepoLab with suggested questions;
+  - an experiment only where one exists;
+  - **Why RepoLab thinks this** (members, usage counts, each connection's line
+    and evidence strength).
+
+**Tests**
+
+- New backend tests:
+  - `test_sources.py` (34): symbols per language, and the verifier cases the
+    brief requires: valid, wrong file, missing symbol, invalid range, other
+    commit, model line corrected, deleted file, ambiguous. Plus store caps and
+    pinning.
+  - `test_api_sources.py` (4).
+  - `test_architecture_runtime.py` (19): web, scheduler, pipeline; comments
+    and strings ignored; the declared-field rule; Super may only name; the
+    regroup regression; verification; module dependencies across 4 build
+    systems.
+  - `test_answer_pinning.py` (3) and pinned-clone tests (3).
+- Assertions updated deliberately: the synthesis drop reason, the schema
+  version, and the guided test's perspective name.
+- Web: `runtime.test.tsx` (11) covers the core ideas, edge labels, the
+  inspector and its "Why", the sequence view only when ordered, the reading
+  path, an older graph, and the source viewer (highlighted range, other commit,
+  not captured, unverified, host fallback).
+
+**Acceptance (live, Nemotron and real clones)**
+
+- **apache/spark @ 6043db3896b8:**
+  - 60 key abstractions and 131 relations; all 88 references verified;
+    15 module dependencies from pom lines; 188 cited files (6.1 MB) stored.
+  - Super named SessionManagement (SparkSession, SparkContext…), BatchDataAPI,
+    LogicalPlanning (Analyzer, Optimizer…), PhysicalPlanning (SparkPlan,
+    DAGScheduler, TaskSetManager, Executor, BlockManager…), Streaming and
+    MachineLearning.
+  - Responsibilities cite verified ranges, e.g. "Divides logical plan into
+    stages and schedules tasks" → `DAGScheduler.scala` L124–5425.
+  - In the browser, opening PhysicalPlanning's source showed `SparkPlan.scala`
+    L65–606 highlighted at that commit, with its sha256.
+- **pyspark-example-project:** ETL Job Entrypoint → Spark ETL Pipeline →
+  Extraction → Transformation → Loading, one ordered flow with every hand-over
+  at `jobs/etl_job.py`, and a 5-item reading path. This is the function-based
+  path.
+- **eventApp (Angular web):** UI Components → Auth & Data Services, with
+  Bootstrapping & Routing; 44/44 references verified.
+- **pallets/click:** Core Dispatch, Parameter Types, Error Handling,
+  Completion & Testing, Help Formatting; 31/31 verified.
+- **apache/cassandra:** QueryHandling, StorageManagement,
+  MetadataCoordination, Streaming. When Super failed one run, the
+  deterministic StorageService → ColumnFamilyStore → DatabaseDescriptor flow
+  stood instead, and the gap was recorded.
+- **Ask:** "Where is the DAGScheduler implemented?" cloned at 6043db3896b8,
+  the investigated commit; its cited files were stored under `ask`.
+- **Found and fixed during these runs:**
+  - Super's runtime pass ran out of budget at 6k tokens; it now has 16k.
+  - Super returned schema-invalid output twice, once with `links` and `flows`
+    embedded as a string inside `components`. The schema was relaxed and that
+    one malformation is repaired before validation.
+  - Regrouped components left stale flows.
+  - The reading path was built before references were verified, so it came
+    out empty.
+  - A false "calls" came from a field named like another type.
+  - Generic `Optional` and `Utils` became components.
+  - Labels on the runtime diagram collided; it now draws hand-overs only, as
+    solid lines.
+
+**Known limitations**
+
+- Dense, cyclic runtime models still draw crossing lines; the panel lists
+  every connection with its line.
+- eventApp's runtime view shows the Angular client. Its Express backend
+  appears in the detected components and parts, not in the runtime model.
+- Symbols come from regular expressions; exotic syntax shows as unverified
+  rather than guessed.
+- Relations are name occurrences in code. "calls" and "creates" come from the
+  line's form, not from resolved semantics.
+- Runtime groupings and labels are Nemotron's wording and can differ between
+  runs. The evidence under them can't.
+- Flows proposed by Nemotron are often cut short at the first hand-over the
+  code doesn't show; the code's own chains are used then.
+- Documentation-versus-code discrepancies are not surfaced.
+- Experience mappings still cite directories, not ranges.
+- Large repositories are read within budget, and the gap is recorded.
+
+---
+
+### Phase 22 — Progressive generation, lazy analysis and a streaming UI
+
+Before this phase, every screen waited for the whole investigation:
+
+- `save_ingestion` ran once, at the end;
+- the manifest, architecture and experience endpoints returned 404 until then (about five minutes on Spark);
+- one RQ queue meant a source build could hold up every new job.
+
+Now the analysis is published **artifact by artifact**: generate, verify, persist, stream, render.
+
+#### What was built
+
+**Artifacts** (`repolab/artifacts/`):
+- A registry of types with priority (P0/P1/P2), dependencies, version, queue, model tier and a lazy flag.
+- The table `analysis_artifacts` (migration `e5a7c9b1d3f4`), keyed by repo + commit + type + `analysis_version`. That key is the cache: a new commit or a bumped version never reuses.
+- An atomic claim: a conditional UPDATE, so only one of N concurrent requests enqueues.
+- Lifecycle transitions with timing and attempts; `announce` emits events after commit and never the payload.
+- `fail()` records `{error_code, stage, message, retryable}` and marks dependants `blocked`.
+- New event types `artifact_queued/started/verifying/ready/updated/failed/blocked`, persisted in `job_events`, so they replay.
+
+**Pipeline** (`worker/analysis.py`):
+1. `git ls-remote` resolves the commit first. If every eager artifact for that commit is ready, the job links the existing ingestion and finishes, with no clone and no model call. If another live job is analysing the same commit, it follows that job.
+2. Otherwise it clones at that exact commit and runs the deterministic fast path:
+   - `repo.facts`;
+   - `repo.manifest` and `architecture.structure`, after which `save_ingestion` runs and **the job links its ingestion immediately**;
+   - `architecture.runtime` and `architecture.source` (the verified code model and the captured files).
+3. Then the P1 passes:
+   - the agent's refined manifest (`artifact_updated`, applied only when materially different);
+   - Super synthesis → `architecture.components`;
+   - Super orientation → `architecture.summary`.
+
+   Each pass is isolated: a failure fails only its artifact and blocks only its dependants.
+
+**Lazy P2** (`worker/artifact_tasks.py`): `architecture.runtime_naming` runs only when Architecture is opened.
+- It needs no clone: it works on the persisted graph and is re-verified against the stored source snapshot.
+- Its result lives in the artifact payload and is overlaid on read (`repolab/artifacts/overlay.py`), so it never races the investigation's writes to the graph.
+
+**Queues:** `repolab-interactive`, `repolab-default` and `repolab-background`. `make dev` starts two workers.
+
+**API:**
+- `GET /jobs/{id}/artifacts` and `GET /jobs/{id}/artifacts/{type}`;
+- `POST /jobs/{id}/artifacts/{type}[?retry=true]`, which is idempotent;
+- the architecture view gains `sections`.
+
+**Web:**
+- The workspace keeps an artifact store, loaded by REST on mount and reconnect and reloaded on every `artifact_*` event. REST is authoritative, so replay can't regress a status.
+- Only the resources an artifact feeds are refetched.
+- Once the stream has closed, active artifacts are polled.
+- `ArtifactSection` reserves space and shows plain status copy (no percentages), with failed + Retry and blocked states.
+- Overview's "What is this?" and key components are bound to it.
+- Architecture requests runtime naming once and shows "they keep their type names" until it's ready.
+- Tabs show a working dot; the chip reads "Still learning · ✓ facts ✓ manifest → components ○ summary"; the drawer has an artifact checklist.
+
+**Metrics** (`/metrics` → "Progressive analysis"):
+- Time to First Meaningful Content.
+- Time to manifest, overview, architecture summary and full analysis. These cover cold jobs only; cached jobs are reported apart.
+- Cache hit rate, failure rate, on-demand requests, and median generation time per artifact type.
+
+#### Observed runs (live stack, Postgres, two workers, real Nemotron)
+
+| | pyspark-example-project cold | warm | apache/spark cold | warm |
+|---|---|---|---|---|
+| ingestion linked (screens have data) | 2.3 s | 1.1 s | 17.5 s | 2.1 s |
+| manifest + structure | 2.3 s | 1.1 s (cache) | 17.5 s | 2.1 s (cache) |
+| runtime + sources (verified) | 2.3 s | 1.1 s (cache) | 30.8 s | 2.1 s (cache) |
+| components (Super) | 92.0 s | cache | 171.7 s | cache |
+| summary (Super) | 122.0 s | cache | 204.6 s | cache |
+| job completed | 123.1 s | 1.1 s | 206.7 s | 2.1 s |
+
+On the warm runs, the worker log shows **one clone across both pyspark runs**.
+
+On-demand runtime naming:
+- **Spark:** POST → ready in about 62 s (63.3 s generation), with Super's names (Driver, Executor, Catalyst/SQL, ML, Streaming, Connect…), 4 flows and an 8-step reading path. One grouping was dropped by verification. The warm Spark job then showed it as already ready.
+- **pyspark-example-project:** the runtime is built from detected components, so there was nothing to name; it was ready in about 2 s, unchanged, with no model call.
+
+Five parallel POSTs against Postgres all returned 202, and **exactly one** `generate_artifact` job ran.
+
+#### Verification
+
+- **Backend:** `tests/test_artifacts.py` (15), `tests/test_progressive_analysis.py` (9), `tests/test_progressive_metrics.py` (2), and the updated metrics and event tests. They cover:
+  - the registry;
+  - claims;
+  - cache, commit and version isolation;
+  - failure isolation;
+  - API refresh reconstruction;
+  - dependency order, with the job linked before any model call;
+  - reuse without a clone;
+  - lazy release;
+  - runtime naming: ready and overlaid, no model → retryable failure, nothing to name → unchanged, not run twice.
+- **Web:** `components/__tests__/artifact.test.tsx` (9) and `app/r/[jobId]/__tests__/progressive.test.tsx` (4). They cover:
+  - section states, with no percentages;
+  - REST restore;
+  - targeted refetch;
+  - a single on-demand request;
+  - the chip's copy.
+- pytest, ruff, vitest, tsc, eslint and `next build` all pass.
+
+#### Known limitations
+
+- Cancellation is job-level only.
+- P1 refinements replace content in place; they're marked by `artifact_updated`.
+- Jobs analysed before this phase have no artifact rows. They are re-analysed once on the next submission, and their sections render from existing data.
+
+### Phase 23 — Calm working states: heartbeat ≠ progress
+
+**Why "Stalled" appeared:**
+- `detect_stall()` called any job whose newest `job_events` row was more than 30 s old "stalled". `GET /jobs/{id}` returned that, and the workspace rendered "Stalled — no progress for 38s. Is the worker running?".
+- Nemotron calls emit nothing while they wait. Super synthesis took 76 s on Spark and orientation 33 s, so a healthy job crossed 30 s of silence on almost every run.
+- A `Heartbeat` class existed but nothing used it, and it would have written an event row every 5 s.
+
+**What replaced it:**
+
+- **Liveness** (`repolab/events/liveness.py`):
+  - A thread refreshes an ephemeral Redis hash `repolab:live:{job|session}:{id}` every 5 s with a 45 s TTL. It's a thread so that blocking work (clone, verification) can't freeze it.
+  - It carries the worker name and the *current activity*: a stage plus a machine key, set where work begins (`Progress.begin` / `.verifying`, `ActivityReporter.enter`, runtime naming, experience preparation steps).
+  - Nothing is written to `job_events`.
+  - `task_health()` returns `waiting` (queued), `working` (beating, or in the 90 s grace period, or Redis unreadable), or `interrupted` (no heartbeat on a task running for over 90 s).
+  - The old stall code was deleted.
+- **API:**
+  - `JobState` drops `stalled` / `stall_summary` and adds `health`, `activity`, `heartbeat_at`, `worker` and `last_progress_at`.
+  - The experience session view adds `health` / `activity` while preparing. Re-starting an interrupted preparation retires it and starts afresh.
+  - Artifacts expose `started_at`.
+  - The cache's "follow another live job" no longer follows an interrupted one.
+- **Web:**
+  - One `WorkingStatus` component and one `ACTIVITY_COPY` map. The tone changes at 30 s ("taking a little longer") and 60 s ("Still working · Large repositories…"); the headline only changes when the backend's activity does.
+  - It's used by the Overview's analyzing card, `ArtifactSection`, experience preparation (polled every 5 s while preparing) and the activity chip.
+  - The amber "Processing may have been interrupted" with Retry appears only on `health: interrupted`.
+  - The `Diagnostics` panel (heartbeat age, last event age, worker, activity key, stream) shows only with `?debug=1` or `NEXT_PUBLIC_REPOLAB_DEBUG=1`, along with the raw last log line during preparation.
+
+**Observed (live, two workers, real Nemotron):**
+- **pallets/itsdangerous, healthy:** during the summary pass the last milestone was 44 s old while the heartbeat stayed ≤5 s, and health stayed `working` throughout. Activities went `finding_entrypoints` → `understanding_data_flow` → `architecture.components` → `architecture.summary`, changing only at real steps.
+- **pallets/markupsafe, workers killed with `kill -9` about 20 s in:**
+  - the heartbeat age climbed, and health stayed `working` until the key expired;
+  - from 91 s it read `interrupted`;
+  - re-submitting (Retry) after restarting the workers analysed at once, without following the dead job, and completed in 88 s.
+
+**Verification:**
+- Backend:
+  - `tests/test_liveness.py`: health table, activity clock, beating while blocked, TTL, failing store;
+  - `tests/test_api_jobs.py`: working despite 5 min without progress, interrupted, grace period, unreadable store;
+  - `tests/test_progressive_analysis.py`: activities in real order, an interrupted job not followed.
+- Web:
+  - `components/__tests__/working-status.test.tsx`: the 5/25/45/65 s acceptance scenario, no "stalled/hung/worker" wording, interrupted + Retry, diagnostics hidden by default;
+  - the workspace never says "Stalled".
+- pytest, ruff, vitest, tsc and eslint all pass.
 
 ## Observed External Capabilities
 

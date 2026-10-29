@@ -11,10 +11,13 @@ import asyncio
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI
+from fastapi import FastAPI, Response, status
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
+from redis import Redis
+from sqlalchemy import text
 
+from api import deps
 from api.routes import (
     artifacts,
     cli,
@@ -29,9 +32,7 @@ from api.routes import (
 )
 from api.runtime_proxy import RuntimeProxyMiddleware
 from repolab import __version__
-
-#: The local web app during development. Tightened for any real deployment.
-DEV_ORIGINS = ("http://localhost:3000", "http://127.0.0.1:3000")
+from repolab.config import get_settings
 
 
 @asynccontextmanager
@@ -78,7 +79,7 @@ app = FastAPI(title="RepoLab API", version=__version__, lifespan=lifespan)
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=list(DEV_ORIGINS),
+    allow_origins=get_settings().cors_origins,
     # DELETE is here for terminal sessions: a learner closing a lesson releases
     # a container, and leaving that to the idle reaper would hold 4 GB for
     # twenty minutes after they left.
@@ -109,3 +110,44 @@ class Health(BaseModel):
 async def health() -> Health:
     """Liveness only: deliberately touches no external service."""
     return Health(status="ok", version=__version__)
+
+
+class Readiness(BaseModel):
+    status: str
+    database: bool
+    redis: bool
+
+
+def database_ready() -> bool:
+    try:
+        with deps.engine().connect() as connection:
+            connection.execute(text("SELECT 1"))
+    except Exception:  # noqa: BLE001 - any failure means "not ready", reported as such
+        return False
+    return True
+
+
+def redis_ready() -> bool:
+    try:
+        client = Redis.from_url(
+            get_settings().redis_url, socket_timeout=2, socket_connect_timeout=2
+        )
+        return bool(client.ping())
+    except Exception:  # noqa: BLE001 - any failure means "not ready", reported as such
+        return False
+
+
+@app.get("/health/ready", response_model=Readiness)
+async def ready(response: Response) -> Readiness:
+    """Readiness: can this process reach Postgres and Redis right now?
+
+    503 when either is unreachable, so a proxy or orchestrator holds traffic back
+    instead of serving errors. Says which, never why: no connection strings.
+    """
+    database, queue = await asyncio.gather(
+        asyncio.to_thread(database_ready), asyncio.to_thread(redis_ready)
+    )
+    healthy = database and queue
+    if not healthy:
+        response.status_code = status.HTTP_503_SERVICE_UNAVAILABLE
+    return Readiness(status="ok" if healthy else "unavailable", database=database, redis=queue)

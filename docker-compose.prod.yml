@@ -1,0 +1,205 @@
+# RepoLab production stack: one VM, Docker Compose, nginx in front.
+#
+#   docker compose -f docker-compose.prod.yml up -d --build
+#
+# Read docs/DEPLOY_NEBIUS.md first. Configuration comes from `.env` (chmod 600)
+# next to this file; see the production section of .env.example.
+#
+# Networking. api, worker, web and nginx use the host's network stack. RepoLab
+# reaches a live app's sidecar at 127.0.0.1:<port> on the host (both the API's
+# proxy and the worker's health probe), which a bridged container cannot do.
+# Every RepoLab service therefore binds 127.0.0.1 only -- including Postgres and
+# Redis, published on loopback -- so nothing but nginx (80/443) is reachable
+# from outside, and repository containers cannot reach the API, Postgres or
+# Redis through the docker0 gateway either.
+#
+# Execution. The api (cqlsh terminals) and the workers drive the host Docker
+# daemon through its socket; repository code runs in sibling containers that
+# never receive the socket. /var/lib/repolab is mounted at the same path inside
+# as outside, because the worker bind-mounts work directories it creates there
+# into those containers, and the daemon resolves the path on the host.
+
+x-backend: &backend
+  build:
+    context: .
+    dockerfile: Dockerfile
+  image: repolab-backend:latest
+  env_file: .env
+  environment:
+    DATABASE_URL: postgresql://repolab:${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}@127.0.0.1:5432/repolab
+    REDIS_URL: redis://:${REDIS_PASSWORD:?set REDIS_PASSWORD in .env}@127.0.0.1:6379/0
+    HOME: /var/lib/repolab
+  network_mode: host
+  volumes:
+    - /var/run/docker.sock:/var/run/docker.sock
+    - /var/lib/repolab:/var/lib/repolab
+    # Spark event logs and experience runs, kept as evidence (./.repolab/...).
+    - /var/lib/repolab/state:/app/.repolab
+  restart: unless-stopped
+  logging: &logging
+    driver: json-file
+    options:
+      max-size: "20m"
+      max-file: "5"
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: repolab
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}
+      POSTGRES_DB: repolab
+    ports:
+      - "127.0.0.1:5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U repolab -d repolab"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+    mem_limit: 2g
+    restart: unless-stopped
+    logging: *logging
+
+  redis:
+    image: redis:7-alpine
+    # Queues and short-lived coordination only; Postgres is the source of truth.
+    # AOF keeps queued jobs across a restart. noeviction: never drop a queued job.
+    command:
+      - redis-server
+      - --requirepass
+      - ${REDIS_PASSWORD:?set REDIS_PASSWORD in .env}
+      - --appendonly
+      - "yes"
+      - --maxmemory
+      - 512mb
+      - --maxmemory-policy
+      - noeviction
+    environment:
+      REDISCLI_AUTH: ${REDIS_PASSWORD}
+    ports:
+      - "127.0.0.1:6379:6379"
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+    mem_limit: 768m
+    restart: unless-stopped
+    logging: *logging
+
+  # One-shot: brings the schema to head before anything serves traffic. Safe on
+  # every deploy -- Alembic applies only what is missing and never drops data.
+  migrate:
+    <<: *backend
+    command: ["alembic", "upgrade", "head"]
+    restart: "no"
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  api:
+    <<: *backend
+    # One process, on purpose: cqlsh terminal sessions live in this process's
+    # memory. --timeout-graceful-shutdown keeps open event streams from holding
+    # a restart hostage.
+    command:
+      - uvicorn
+      - api.main:app
+      - --host
+      - 127.0.0.1
+      - --port
+      - "8000"
+      - --proxy-headers
+      - --forwarded-allow-ips
+      - 127.0.0.1
+      - --timeout-graceful-shutdown
+      - "5"
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://127.0.0.1:8000/health/ready"]
+      interval: 10s
+      timeout: 5s
+      retries: 6
+      start_period: 20s
+    mem_limit: 2g
+    stop_grace_period: 30s
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+      redis:
+        condition: service_healthy
+
+  worker:
+    <<: *backend
+    command: ["python", "-m", "worker.main"]
+    # Each worker runs one job at a time; two match `make dev`. Repository
+    # containers are not counted here: each carries its own --memory limit.
+    deploy:
+      replicas: 2
+    mem_limit: 3g
+    # Lets a job finish its current step. A job cut off by a deploy is reported
+    # as interrupted by the worker's liveness sweep, never as silently stalled.
+    stop_grace_period: 60s
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+      redis:
+        condition: service_healthy
+
+  web:
+    build:
+      context: ./web
+      args:
+        # The only value the browser sees. Same origin as the page: nginx
+        # routes /api to the API.
+        NEXT_PUBLIC_API_URL: ${PUBLIC_URL:?set PUBLIC_URL in .env}/api
+    image: repolab-web:latest
+    network_mode: host
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:3000/').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      interval: 10s
+      timeout: 5s
+      retries: 6
+      start_period: 20s
+    mem_limit: 1g
+    restart: unless-stopped
+    logging: *logging
+
+  nginx:
+    image: nginx:1.27-alpine
+    network_mode: host
+    environment:
+      REPOLAB_DOMAIN: ${REPOLAB_DOMAIN:?set REPOLAB_DOMAIN in .env (the VM IP until DNS exists)}
+      # Only the domain is substituted; nginx's own $variables are left alone.
+      NGINX_ENVSUBST_FILTER: REPOLAB_
+    volumes:
+      - ./nginx/templates:/etc/repolab/nginx:ro
+      - ./nginx/40-select-conf.sh:/docker-entrypoint.d/15-repolab-select-conf.sh:ro
+      - /var/lib/repolab/letsencrypt:/etc/letsencrypt:ro
+      - /var/lib/repolab/acme:/var/www/acme:ro
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1/nginx-health"]
+      interval: 10s
+      timeout: 5s
+      retries: 6
+    mem_limit: 256m
+    restart: unless-stopped
+    depends_on:
+      - api
+      - web
+    logging: *logging
+
+  # Not started by `up`: run by scripts/deploy/init_tls.sh and the renew timer.
+  certbot:
+    image: certbot/certbot:latest
+    profiles: ["tls"]
+    volumes:
+      - /var/lib/repolab/letsencrypt:/etc/letsencrypt
+      - /var/lib/repolab/acme:/var/www/acme
+
+volumes:
+  postgres_data:
+  redis_data:

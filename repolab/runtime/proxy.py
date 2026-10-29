@@ -40,12 +40,16 @@ HOP_BY_HOP = frozenset(
 _STRIPPED_RESPONSE = frozenset({"set-cookie2", "strict-transport-security"})
 
 
+#: A port equal to the scheme's default is left out of an origin.
+_DEFAULT_PORTS = {"http": 80, "https": 443}
+
+
 def proxy_origin(runtime_id: str, service: str) -> str:
     settings = get_settings()
-    return (
-        f"http://rt-{runtime_id}-{service}.{settings.runtime_proxy_domain}"
-        f":{settings.runtime_proxy_origin_port}"
-    )
+    scheme = settings.runtime_proxy_scheme
+    port = settings.runtime_proxy_origin_port
+    suffix = "" if port is None or port == _DEFAULT_PORTS.get(scheme) else f":{port}"
+    return f"{scheme}://rt-{runtime_id}-{service}.{settings.runtime_proxy_domain}{suffix}"
 
 
 def parse_host(host: str | None) -> tuple[str, str] | None:

@@ -62,9 +62,7 @@ def plan_runtime(context: DetectionContext, manifest: RepoManifest) -> RuntimePl
     package_dirs = [p.rsplit("/", 1)[0] if "/" in p else "" for p in manifests]
     commit = context.commit_sha
 
-    services: list[ServicePlan] = []
-    packages: dict[str, node.NodePackage] = {}
-    sources: dict[str, dict[str, str]] = {}
+    found: list[tuple[ServicePlan, node.NodePackage, dict[str, str]]] = []
     for manifest_path, directory in zip(manifests, package_dirs, strict=True):
         text = read_text(context.path_for(manifest_path), budget=budget, reserved=True)
         if text is None:
@@ -77,11 +75,14 @@ def plan_runtime(context: DetectionContext, manifest: RepoManifest) -> RuntimePl
         _add_entry_file(context, package, files, budget)
         service = _service(package, files, siblings, detected, commit)
         if service is not None:
-            services.append(service)
-            packages[service.name] = package
-            sources[service.name] = files
+            found.append((service, package, files))
 
+    # Keyed only after renaming: two packages may share a name (Airflow has two
+    # `ui` packages), and the second becomes `ui-2`.
+    services = [service for service, _, _ in found]
     _name_uniquely(services)
+    packages = {service.name: package for service, package, _ in found}
+    sources = {service.name: files for service, _, files in found}
     plan.services = services
     plan.dependencies = _dependencies(services, packages, sources, commit)
     _warn(plan, sources)

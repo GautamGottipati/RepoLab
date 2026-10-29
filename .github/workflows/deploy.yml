@@ -1,0 +1,121 @@
+# Test, then deploy to the production VM, on every push to main.
+#
+# Cloud-neutral: the VM may be on Nebius or Google Compute Engine; the steps are
+# the same. Deployment is the documented manual update
+# (docs/DEPLOY_OPERATIONS.md, "Update the deployment") run over SSH: git pull,
+# docker compose up --build, then the deployment check.
+# Secrets live on the VM in .env; GitHub holds only the SSH access below.
+#
+# Repository secrets:
+#   VM_HOST          the VM's public IP or domain
+#   VM_USER          the deploy user (in the docker group)
+#   VM_SSH_KEY       a private key authorised for VM_USER (deploy-only key)
+#   VM_KNOWN_HOSTS   output of `ssh-keyscan -t ed25519 <VM_HOST>`, so the
+#                    runner never trusts an unverified host key
+# Repository variable (optional):
+#   VM_APP_DIR       where the repository is cloned on the VM (default /opt/repolab)
+
+name: deploy
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: astral-sh/setup-uv@v6
+      - name: Python dependencies
+        run: uv sync --frozen
+      - name: Lint
+        run: |
+          uv run ruff check .
+          uv run ruff format --check .
+      - name: Tests (offline)
+        run: uv run pytest
+
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+      - name: Web
+        working-directory: web
+        env:
+          NEXT_PUBLIC_API_URL: http://localhost:8000
+        run: |
+          npm ci
+          npm run lint
+          npm test
+          npm run build
+
+  deploy:
+    needs: test
+    runs-on: ubuntu-latest
+    # One deploy at a time; a newer push waits rather than interrupting.
+    concurrency:
+      group: deploy-production
+      cancel-in-progress: false
+    environment: production
+    steps:
+      # Until the VM exists (no VM_HOST secret), skip the deploy instead of
+      # failing every push; the tests above still run.
+      - name: Deployment configured?
+        id: configured
+        env:
+          VM_HOST: ${{ secrets.VM_HOST }}
+        run: |
+          if [ -n "$VM_HOST" ]; then
+            echo "ready=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "::notice::VM_HOST is not set; skipping deploy (see docs/DEPLOY_OPERATIONS.md)"
+          fi
+
+      - name: SSH key
+        if: steps.configured.outputs.ready == 'true'
+        env:
+          VM_SSH_KEY: ${{ secrets.VM_SSH_KEY }}
+          VM_KNOWN_HOSTS: ${{ secrets.VM_KNOWN_HOSTS }}
+        run: |
+          install -m 700 -d ~/.ssh
+          printf '%s\n' "$VM_SSH_KEY" > ~/.ssh/id_deploy
+          chmod 600 ~/.ssh/id_deploy
+          printf '%s\n' "$VM_KNOWN_HOSTS" > ~/.ssh/known_hosts
+
+      - name: Deploy
+        if: steps.configured.outputs.ready == 'true'
+        env:
+          VM_HOST: ${{ secrets.VM_HOST }}
+          VM_USER: ${{ secrets.VM_USER }}
+          APP_DIR: ${{ vars.VM_APP_DIR || '/opt/repolab' }}
+          SHA: ${{ github.sha }}
+        run: |
+          ssh -i ~/.ssh/id_deploy -o StrictHostKeyChecking=yes "$VM_USER@$VM_HOST" \
+            bash -s -- "$APP_DIR" "$SHA" <<'REMOTE'
+          set -euo pipefail
+          cd "$1"
+          git fetch --quiet origin main
+          git checkout --quiet main
+          git merge --ff-only --quiet origin/main
+          test "$(git rev-parse HEAD)" = "$2" || echo "note: main moved past $2; deploying $(git rev-parse --short HEAD)"
+          docker compose -f docker-compose.prod.yml up -d --build --remove-orphans
+          # Services take a moment to report healthy after a rebuild.
+          for attempt in 1 2 3 4 5 6; do
+            if bash scripts/check_deployment.sh; then exit 0; fi
+            echo "check failed (attempt $attempt); retrying in 20 s"
+            sleep 20
+          done
+          docker compose -f docker-compose.prod.yml ps
+          exit 1
+          REMOTE
+
+      - name: Remove key
+        if: always()
+        run: rm -f ~/.ssh/id_deploy

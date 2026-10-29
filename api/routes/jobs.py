@@ -65,6 +65,12 @@ router = APIRouter(prefix="/jobs", tags=["jobs"])
 #: How often the stream checks Postgres for new events.
 POLL_INTERVAL_SECONDS = 0.25
 
+#: After this long with nothing to send, the stream sends an SSE comment. A
+#: reverse proxy closes a connection that is silent for its read timeout
+#: (nginx's default is 60 s); ``EventSource`` ignores comments entirely.
+KEEPALIVE_SECONDS = 15.0
+KEEPALIVE_FRAME = ": keep-alive\n\n"
+
 #: How long a finished job's stream stays open before closing, so a client that
 #: connects just after completion still receives the tail.
 LINGER_SECONDS = 1.0
@@ -252,6 +258,8 @@ async def _event_stream(
     """Replay, then follow. One ordering, so no gaps and no duplicates."""
     cursor = after
     factory = deps.session_factory()
+    loop = asyncio.get_running_loop()
+    last_sent = loop.time()
 
     while True:
         if await request.is_disconnected():
@@ -265,6 +273,8 @@ async def _event_stream(
         for event in events:
             cursor = event.seq
             yield event.to_sse()
+        if events:
+            last_sent = loop.time()
 
         drained = not events
         if drained and job_status is not None and job_status.is_terminal:
@@ -273,6 +283,9 @@ async def _event_stream(
             return
         if drained and not follow:
             return
+        if loop.time() - last_sent >= KEEPALIVE_SECONDS:
+            yield KEEPALIVE_FRAME
+            last_sent = loop.time()
 
         await asyncio.sleep(POLL_INTERVAL_SECONDS)
 

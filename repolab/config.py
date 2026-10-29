@@ -59,8 +59,21 @@ class Settings(BaseSettings):
     """Live apps are served at ``rt-<runtime>-<service>.<domain>``. Browsers resolve
     any ``*.localhost`` name to the loopback address, so locally no DNS is needed."""
 
-    runtime_proxy_origin_port: int = 8000
-    """The port the API is reached on, for building a live app's address."""
+    runtime_proxy_origin_port: int | None = 8000
+    """The port the API is reached on, for building a live app's address.
+
+    ``None`` (or the scheme's default port) leaves the port out, as it must be
+    behind a reverse proxy on 80/443."""
+
+    runtime_proxy_scheme: str = "http"
+    """``https`` once the proxy terminates TLS, so a live app's iframe is not
+    blocked as mixed content."""
+
+    cors_origins: list[str] = Field(
+        default=["http://localhost:3000", "http://127.0.0.1:3000"],
+    )
+    """Browser origins allowed to call the API. A same-origin deployment (web and
+    API behind one proxy) needs none beyond these; set as a JSON list."""
 
     @property
     def configured_models(self) -> dict[str, str | None]:

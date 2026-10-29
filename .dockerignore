@@ -1,0 +1,18 @@
+# Secrets never enter an image.
+.env
+.env.*
+!.env.example
+
+.git
+.venv
+.pytest_cache
+.ruff_cache
+**/__pycache__
+**/*.pyc
+.repolab
+
+# The web app has its own image and context.
+web
+
+tests
+docs

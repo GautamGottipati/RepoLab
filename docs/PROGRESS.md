@@ -1,6 +1,6 @@
 # RepoLab Progress
 
-Last updated: 2026-10-27 (Calm working states: heartbeat ≠ progress)
+Last updated: 2026-10-29 (Production deployment: Nebius or Google Compute Engine)
 
 ---
 
@@ -3034,6 +3034,116 @@ Five parallel POSTs against Postgres all returned 202, and **exactly one** `gene
   - `components/__tests__/working-status.test.tsx`: the 5/25/45/65 s acceptance scenario, no "stalled/hung/worker" wording, interrupted + Retry, diagnostics hidden by default;
   - the workspace never says "Stalled".
 - pytest, ruff, vitest, tsc and eslint all pass.
+
+### Phase 24 — Production deployment: one Nebius VM, Docker Compose, nginx, CI/CD
+
+**Why:** RepoLab ran only on a laptop. The goal was a public hackathon deployment on one Nebius CPU VM that redeploys on every push to `main`. The runbook is `docs/DEPLOY_NEBIUS.md`.
+
+**What was added:**
+- **Images.**
+  - `Dockerfile` (backend: api, worker and migrate) uses `uv sync --frozen --no-dev` and carries `git` plus the `docker` CLI.
+  - `web/Dockerfile` runs `npm ci`, `next build` and `next start` on loopback. `NEXT_PUBLIC_API_URL` is a build arg and the only browser-visible value.
+- **Compose.** `docker-compose.prod.yml` defines postgres (volume), redis (password, AOF, noeviction), a one-shot `migrate`, api (one process), worker ×2, web and nginx.
+  - api, worker, web and nginx use host networking, because live-app sidecars sit on the host's `127.0.0.1`. Every service binds loopback.
+  - `/var/lib/repolab` is mounted at the same path inside and out, because the worker bind-mounts work directories it creates there into Spark containers.
+- **nginx** (`nginx/`):
+  - `/api` is stripped, giving a same-origin site.
+  - SSE routes are unbuffered with a 1 h timeout.
+  - The cqlsh WebSocket is the only route that upgrades.
+  - The HTTP config switches to HTTPS automatically once a Let's Encrypt certificate exists.
+- **Scripts.**
+  - `scripts/deploy/bootstrap_vm.sh`: Docker from the official apt repo, log rotation, a `DOCKER-USER` rule dropping container traffic to link-local / metadata addresses, and certbot-renew and daily `pg_dump` timers.
+  - `init_tls.sh` and `backup_postgres.sh`.
+  - `scripts/check_deployment.sh`: health, data services, RQ workers, SSE routing, configured keys (set/unset only), Docker reachability, and isolation probes run from a throwaway container.
+- **CI.** `.github/workflows/deploy.yml` runs ruff, pytest and the web lint/test/build, then deploys over SSH (pinned known_hosts, a concurrency group) and runs the check.
+
+**Code changes:**
+- **`CORS_ORIGINS` setting.** Replaces the hardcoded dev origins.
+- **`GET /health/ready`.** Checks Postgres and Redis, returning 503 with which one failed. `/health` stays liveness-only.
+- **SSE keep-alive.** An SSE comment is sent after 15 s with no events, so a quiet stream survives a proxy's read timeout. It's in `api/routes/jobs.py`.
+- **`RUNTIME_PROXY_SCHEME`.** A default port is now left out of live-app origins.
+- **Bug found by the deployment run** (it was already in `HEAD`, and wasn't caused by the deployment):
+  - `plan_runtime` keyed packages by name *before* `_name_uniquely` renamed duplicates. Current `apache/airflow` has two `ui` packages, so its investigation failed with `KeyError: 'ui-2'`.
+  - The lookups are now built after renaming, covered by `tests/test_runtime_plan.py::...sharing_a_name...`.
+
+**Observed (production stack inside a privileged docker:dind container, i.e. Linux host networking, on an 8 GB machine):**
+- **`check_deployment.sh` passed every check.** That includes all isolation probes: no Docker socket in repository containers, metadata unreachable, and host ports 8000/3000/5432/6379 unreachable from the bridge.
+- **Spark demo import through nginx completed.**
+  - 96 SSE events, including a `: keep-alive` comment during a quiet stretch.
+  - Real Nemotron Super calls from the worker container.
+  - `Last-Event-ID` resume through nginx returned exactly the missing events.
+- **Real Spark run.** The bind mount resolved, the event log was preserved, and 24 tasks across 6 stages were measured.
+- **P0 loop via the API.** Ask → Ultra plan (6 values × 4 repeats) held at `awaiting_approval` → approve → 24 variants and 360 measurements → grounded explanation. Marked reproducible at `eeee0c2b9af7`.
+- **Restarts.** The terminal WebSocket upgraded (101) through nginx, and finished analyses survived `docker compose restart`.
+- **Browser suite.**
+  - `metrics.spec.ts` passed.
+  - `p0.spec.ts` and `airflow.spec.ts` fail on **stale selectors from the Phase 20 redesign**: the heading "RepoLab" and the text "Available Experiences" no longer exist in `web/`.
+  - The Airflow job itself completes with four surfaces (cli, web, api, notebook).
+- **Not yet observed:** Cassandra (needs at least 16 GB); a real Nebius VM; real TLS.
+
+**Verification:** 2122 offline tests, ruff check and format all pass. Both images build, and `docker compose config` validates.
+
+**Known issues:**
+- **Repository code runs in sibling containers on the same VM.** Nebius Sandboxes are entitlement-blocked. The Spark playground and experiment containers aren't fully hardened.
+- **The api and worker hold the Docker socket**, so their containers run as root. That is required because work directories are 0700 and are written by root with capabilities dropped.
+- **Live web-app previews** need wildcard DNS plus a wildcard certificate.
+- **A deploy interrupts running jobs.** They are reported as interrupted.
+- **`p0.spec.ts` and `airflow.spec.ts` need their selectors updated** for the redesigned UI.
+
+### Phase 24b — Google Compute Engine hosting, alongside Nebius
+
+**Why:** application hosting moves to a Compute Engine VM, while models stay on Nebius Token Factory. Nebius hosting must keep working, and both use the same Compose stack. The runbooks are `docs/DEPLOY_GCP.md` and `docs/DEPLOY_NEBIUS.md`; shared operations are in `docs/DEPLOY_OPERATIONS.md`.
+
+**Unchanged (already cloud-neutral):** `docker-compose.prod.yml`, `nginx/`, `init_tls.sh`, `backup_postgres.sh`, both Dockerfiles, `.env.example`, all application code, and the CI workflow (its secrets are generic `VM_*`; only a comment changed). There is no provider variable in the app.
+
+**Bootstrap, split into shared and provider code:**
+- `scripts/deploy/lib/common.sh`, shared:
+  - Docker installation.
+  - `daemon.json` merge: log rotation, plus an MTU taken from the VM's NIC. It never overrides keys the operator set.
+  - The docker group, `/var/lib/repolab`, and the certbot and backup timers.
+  - `container_firewall_rules <provider>`, pure and unit-tested, and `apply_container_firewall`.
+- `bootstrap_gcp.sh` and `bootstrap_nebius.sh`: only the firewall provider and an attached-service-account warning differ.
+- `bootstrap_vm.sh` is now a shim that runs `bootstrap_nebius.sh`.
+
+**The GCP finding that shaped the design:**
+- Google's metadata server (`169.254.169.254`) is *also the VM's DNS resolver* ("Each VM must be configured to use the metadata server IP address … as its name server", dns/docs/vpc-name-res-order).
+- Copying the Nebius rule (drop all of `169.254.0.0/16`) would have broken DNS in every repository container.
+- **The GCP rules:**
+  - `RETURN` port 53 to `169.254.169.254`, then `DROP` link-local.
+  - `ip6tables` `DROP` to `fd20:ce::254`.
+- **Rules both clouds gain:**
+  - DNS exceptions for the host's actual upstream resolvers.
+  - Drops for cloud-internal ranges (10/8, 172.16/12, 192.168/16, 100.64/10) **out of the NIC only**, which stops lateral movement into the VPC while leaving Docker's own bridges alone.
+- **How the rules are installed:** they live in a `REPOLAB-CONTAINERS` chain jumped from `DOCKER-USER`, rebuilt idempotently. They use `RETURN`, not `ACCEPT`, so Docker's isolation still applies. The old direct rule is migrated away.
+
+**`check_deployment.sh` (one script for both clouds):**
+- Provider comes from `/etc/repolab/provider`.
+- Metadata probes for that cloud; an unresolved name is reported as "not present", no longer PASS.
+- The chain is checked as installed and jumped to.
+- Only `api`/`worker` may mount docker.sock, and no container may be privileged.
+- Repository containers must have a memory limit.
+- Containers must still resolve DNS and reach HTTPS.
+- Token Factory must be reachable from the API container.
+
+**Observed (docker:dind Linux test VM; a simulated GCE metadata server in its own network namespace, so container traffic crosses FORWARD as on a real VM):**
+- **Baseline, no firewall:** a container fetched the fake service-account token. The threat reproduces.
+- **GCP rules:**
+  - Token blocked, metadata port 53 open.
+  - DNS works through a *private-range* resolver (192.168.65.7, via the exception).
+  - HTTPS and `pip download` inside a container work.
+  - The VPC gateway is blocked.
+  - The legacy rule was removed, and a second run produced an identical chain.
+- **Negative control:** flushing the chain made `check_deployment.sh` fail exactly two checks: chain empty, metadata reachable.
+- **Nebius rules:** metadata blocked; DNS and HTTPS still fine.
+- **Full stack under the GCP rules:**
+  - Every check passed.
+  - An import of pallets/markupsafe through nginx: 65 SSE events, 7 artifacts, a keep-alive comment, and `Last-Event-ID` resume.
+  - A real Spark run measured 24 tasks.
+  - The terminal WebSocket upgraded (101).
+  - 10 successful Nemotron calls from the worker.
+- **Not yet observed:** a real Compute Engine VM (real metadata, MTU 1460, the guest agent and OS Login); a real Nebius VM.
+
+**Tests:** `tests/test_deploy_scripts.py` (31): syntax, provider rule sets, rule order, resolver exceptions, interface scoping, the daemon.json merge, bootstrap dry-run branching, the compose config, and `nginx -t` on both templates (docker-marked).
 
 ## Observed External Capabilities
 

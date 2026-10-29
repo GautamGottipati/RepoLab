@@ -1,0 +1,41 @@
+# HTTPS: chosen automatically once /etc/letsencrypt/live/${REPOLAB_DOMAIN} exists.
+
+map $http_upgrade $connection_upgrade {
+    default upgrade;
+    ""      close;
+}
+
+server {
+    listen 80 default_server;
+    server_name _;
+
+    location = /nginx-health { access_log off; return 200 "ok\n"; }
+    location /.well-known/acme-challenge/ { root /var/www/acme; }
+    location / { return 301 https://$host$request_uri; }
+}
+
+server {
+    listen 443 ssl default_server;
+    http2 on;
+    server_name ${REPOLAB_DOMAIN};
+
+    ssl_certificate     /etc/letsencrypt/live/${REPOLAB_DOMAIN}/fullchain.pem;
+    ssl_certificate_key /etc/letsencrypt/live/${REPOLAB_DOMAIN}/privkey.pem;
+    ssl_protocols TLSv1.2 TLSv1.3;
+    ssl_session_cache shared:SSL:10m;
+    add_header Strict-Transport-Security "max-age=31536000" always;
+
+    include /etc/repolab/nginx/common.inc;
+}
+
+server {
+    listen 443 ssl;
+    http2 on;
+    server_name "~^rt-[a-f0-9]{12}-[a-z0-9-]+\.${REPOLAB_DOMAIN}$";
+
+    ssl_certificate     /etc/letsencrypt/live/${REPOLAB_DOMAIN}/fullchain.pem;
+    ssl_certificate_key /etc/letsencrypt/live/${REPOLAB_DOMAIN}/privkey.pem;
+    ssl_protocols TLSv1.2 TLSv1.3;
+
+    include /etc/repolab/nginx/runtime.inc;
+}

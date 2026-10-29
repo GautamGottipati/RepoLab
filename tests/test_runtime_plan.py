@@ -220,6 +220,27 @@ class TestMonorepos:
         plan = plan_for(tmp_path, self.FILES, SurfaceType.WEB, SurfaceType.API)
         assert "root" not in {s.name for s in plan.services}
 
+    def test_packages_sharing_a_name_are_each_planned_with_their_own_files(
+        self, tmp_path: Path
+    ) -> None:
+        """Airflow has two `ui` packages. Renaming the second must not lose it."""
+        files = {
+            "a/ui/package.json": pkg("ui", {"dev": "vite"}, {"vite": "5", "react": "18"}),
+            "a/ui/src/api.ts": "export const base = import.meta.env.VITE_API_URL;\n",
+            "b/ui/package.json": pkg(
+                "ui", {"start": "node server.js"}, {"express": "4", "mongoose": "8"}
+            ),
+            "b/ui/server.js": (
+                "mongoose.connect(process.env.MONGODB_URI);\n"
+                "app.listen(process.env.PORT || 8080);\n"
+            ),
+        }
+        plan = plan_for(tmp_path, files, SurfaceType.WEB, SurfaceType.API)
+        by_dir = {s.working_directory: s.name for s in plan.services}
+        assert by_dir == {"a/ui": "ui", "b/ui": "ui-2"}
+        (dependency,) = plan.dependencies
+        assert dependency.services == ["ui-2"]
+
 
 class TestEvidencedLimits:
     def test_a_hard_coded_external_database_is_external_and_redacted(self, tmp_path: Path) -> None:

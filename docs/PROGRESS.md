@@ -3799,6 +3799,10 @@ Nothing. Phase 13 is complete and work is stopped pending review.
 
 ## Next
 
+**Deferred work is tracked in [`docs/BACKLOG.md`](BACKLOG.md):** CI deprecations,
+stale browser specs, real-VM acceptance tests, hardening and operations items.
+Skim it at the start of each development session.
+
 **Rotate the two credentials that were in `.env.example`.** They are no longer in
 the file, but they were, and that file exists to be shared. Nothing in this
 repository can undo that.

@@ -234,20 +234,32 @@ class TestBootstrapBranching:
 @pytest.mark.skipif(shutil.which("docker") is None, reason="docker CLI not installed")
 class TestCompose:
     def test_the_production_stack_is_valid_for_any_provider(self, tmp_path: Path) -> None:
-        env = tmp_path / "test.env"
-        env.write_text(
+        # A copy beside a dummy .env: the stack requires .env, and a developer's
+        # real one must neither be needed nor read.
+        shutil.copy(ROOT / "docker-compose.prod.yml", tmp_path / "docker-compose.prod.yml")
+        (tmp_path / ".env").write_text(
             "POSTGRES_PASSWORD=x\nREDIS_PASSWORD=y\n"
             "PUBLIC_URL=http://203.0.113.10\nREPOLAB_DOMAIN=203.0.113.10\n"
         )
         result = subprocess.run(
-            ["docker", "compose", "-f", "docker-compose.prod.yml", "--env-file", str(env),
-             "config", "--quiet"],
-            cwd=ROOT,
+            ["docker", "compose", "-f", "docker-compose.prod.yml", "config", "--quiet"],
+            cwd=tmp_path,
             capture_output=True,
             text=True,
             check=False,
-        )  # fmt: skip
+        )
         assert result.returncode == 0, result.stderr
+
+    def test_a_missing_env_file_is_refused(self, tmp_path: Path) -> None:
+        shutil.copy(ROOT / "docker-compose.prod.yml", tmp_path / "docker-compose.prod.yml")
+        result = subprocess.run(
+            ["docker", "compose", "-f", "docker-compose.prod.yml", "config", "--quiet"],
+            cwd=tmp_path,
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        assert result.returncode != 0
 
 
 @pytest.mark.docker
